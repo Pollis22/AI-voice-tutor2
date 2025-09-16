@@ -1,0 +1,78 @@
+You are building a production-ready MVP of a Conversational AI Tutor. Plan → scaffold → run browser tests → fix → retest until all tests pass.
+
+GOALS
+- Ship a full-stack web app that lets paying students learn Math, English, and Spanish with live voice + quizzes, transcripts, and “resume where I left off.”
+- Keep pedagogy deterministic (lessons as JSON). Add RAG later for "Learn More / Deeper Explanation" without affecting graded answers.
+
+STACK
+- Next.js (App Router) + React + TypeScript
+- Node API routes
+- DB: Postgres with Prisma (include schema + seed script)
+- Auth: email + magic link (e.g., NextAuth or simple passwordless)
+- Payments: Stripe Subscriptions
+- Tests: end-to-end browser “App Testing” that clicks through key flows
+- Hosting: works on Replit; must be exportable to GitHub and runnable on Vercel/Railway
+
+VOICE ARCHITECTURE (HYBRID)
+- LIVE conversation: OpenAI Realtime (WebRTC) for speech-in/speech-out.
+- NARRATION/long reads: Azure Neural TTS with style support (e.g., cheerful, empathetic).
+- Build a server-side VoiceRouter:
+  - POST /api/voice/narrate { text, style } → returns Azure audio (stream or URL)
+  - GET  /api/voice/live-token → returns ephemeral token/config for Realtime WebRTC
+- IMPORTANT (autoplay policy): The UI must gate audio behind a single big **Start Voice** button. No audio or mic before user gesture.
+
+LLM
+- Default tutor reasoning model: GPT-4o-mini (configurable).
+- Persona: friendly, patient, Socratic; bilingual (English/Spanish). Use hints before direct answers.
+
+FEATURES
+- Pricing page + Stripe checkout: $99.99/mo (single subject), $199/mo (all subjects).
+- Stripe Customer Portal (upgrade/downgrade/cancel).
+- Auth + user profile.
+- Lesson engine:
+  - Read lessons from `/content/lessons/*.json` (seed 3: Math “Numbers & Counting”, English “Parts of Speech”, Spanish “Greetings”).
+  - Flow: teach → practice → quiz → remediation → mark mastery.
+- Transcripts saved per session; **Resume card** on home shows last subject/lesson and timestamp.
+- Admin mini-dashboard (protected): users, plan, last activity, export CSV.
+- Usage meter: show minutes used this billing cycle; soft cap (e.g., 60–90 min/week) that auto-switches to text/narration when exceeded.
+
+TESTING & QA
+- Create an **App Testing** script that drives:
+  1) sign up (magic link flow can be mocked),
+  2) paywall → Stripe test checkout,
+  3) click **Start Voice** (satisfy user gesture) and verify live state mock,
+  4) take a short quiz,
+  5) save transcript,
+  6) refresh → verify **Resume** card appears.
+- Provide a **TEST MODE** via `VOICE_TEST_MODE=1`:
+  - mock mic/audio and Realtime so tests pass without real devices.
+- Include a Playwright script (separate) with media flags for full audio path (document flags in README).
+
+DELIVERABLES
+- Repo layout:
+  - `/app` (Next.js routes/pages/components)
+  - `/api` (voice, lessons, auth, stripe)
+  - `/content/lessons/*.json` (seed files)
+  - `/db/schema.prisma`, seed script
+  - `/tests/app-testing/*` and Playwright example
+  - `README.md` with First-Run Checklist, ENV table, deploy/export steps
+  - `.env.example` with all keys
+- “Settings” page in the app where we can paste:
+  - OpenAI model & keys (masked),
+  - Azure voice + styles,
+  - Stripe price IDs,
+  - minute caps per plan.
+
+GUARDRAILS
+- Do NOT change stack mid-run.
+- Commit early and often. Summarize each major change.
+- If any key is missing, mock behavior but mark TODO; keep tests green.
+- Keep dependencies minimal.
+
+NON-GOALS (v1)
+- No RAG/vector DB in graded flow.
+- No complex analytics; CSV export is enough.
+
+DEPLOY & EXPORT
+- Provide 1-click Replit Deploy.
+- Include “Export to GitHub” instructions and Vercel/Railway deploy notes.
