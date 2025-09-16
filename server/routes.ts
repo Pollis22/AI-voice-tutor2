@@ -8,13 +8,18 @@ import { openaiService } from "./services/openai";
 import Stripe from "stripe";
 import { z } from "zod";
 
-if (!process.env.STRIPE_SECRET_KEY) {
+// Temporary bypass for development - will use provided secrets once configured
+if (!process.env.STRIPE_SECRET_KEY && process.env.NODE_ENV !== 'development') {
   throw new Error('Missing required Stripe secret: STRIPE_SECRET_KEY');
 }
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
+// Use provided Stripe key or disable Stripe functionality in development
+const stripeKey = process.env.STRIPE_SECRET_KEY;
+const isStripeEnabled = !!stripeKey;
+
+const stripe = isStripeEnabled ? new Stripe(stripeKey, {
   apiVersion: "2025-08-27.basil",
-});
+}) : null;
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Setup authentication
@@ -225,11 +230,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.sendStatus(401);
     }
 
+    if (!isStripeEnabled) {
+      return res.status(503).json({ message: "Subscription service temporarily unavailable - Stripe not configured" });
+    }
+
     let user = req.user as any;
     const { plan = 'all' } = req.body; // 'single' or 'all'
 
     if (user.stripeSubscriptionId) {
-      const subscription = await stripe.subscriptions.retrieve(user.stripeSubscriptionId);
+      const subscription = await stripe!.subscriptions.retrieve(user.stripeSubscriptionId);
       
       const latestInvoice = subscription.latest_invoice;
       const clientSecret = latestInvoice && typeof latestInvoice === 'object' 
@@ -249,7 +258,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     try {
-      const customer = await stripe.customers.create({
+      const customer = await stripe!.customers.create({
         email: user.email,
         name: `${user.firstName} ${user.lastName}`.trim() || user.username,
       });
@@ -265,7 +274,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         throw new Error(`Missing Stripe price ID for ${plan} plan`);
       }
 
-      const subscription = await stripe.subscriptions.create({
+      const subscription = await stripe!.subscriptions.create({
         customer: customer.id,
         items: [{ price: priceId }],
         payment_behavior: 'default_incomplete',
@@ -295,6 +304,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.sendStatus(401);
     }
 
+    if (!isStripeEnabled) {
+      return res.status(503).json({ message: "Customer portal temporarily unavailable - Stripe not configured" });
+    }
+
     const user = req.user as any;
     
     if (!user.stripeCustomerId) {
@@ -302,7 +315,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     try {
-      const session = await stripe.billingPortal.sessions.create({
+      const session = await stripe!.billingPortal.sessions.create({
         customer: user.stripeCustomerId,
         return_url: `${req.protocol}://${req.get('host')}/settings`,
       });
