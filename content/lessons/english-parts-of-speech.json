@@ -1,0 +1,78 @@
+{
+  "title": "Parts of Speech - Nouns and Verbs",
+  "description": "Discover the building blocks of language! Learn to identify and use nouns and verbs in sentences.",
+  "objective": "In this lesson, you'll learn about two fundamental parts of speech: nouns and verbs. You'll practice identifying them in sentences and understand how they work together to create meaning.",
+  "concepts": [
+    "Nouns are words that name people, places, things, or ideas",
+    "Verbs are action words that tell us what someone or something does",
+    "Every sentence needs at least one noun and one verb",
+    "Nouns can be concrete (you can touch them) or abstract (ideas/feelings)",
+    "Verbs can show action (run, jump) or state of being (is, are)"
+  ],
+  "examples": [
+    {
+      "problem": "Find the noun: 'The dog barks loudly.'",
+      "visual": "<div class='text-center p-4 bg-blue-50 rounded-lg'><p class='text-lg'>The <span class='bg-yellow-200 px-2 py-1 rounded font-bold'>dog</span> barks loudly.</p></div>",
+      "answer": "dog",
+      "explanation": "'Dog' is a noun because it names an animal (a thing). It tells us who or what is doing the action."
+    },
+    {
+      "problem": "Find the verb: 'Sarah runs every morning.'",
+      "visual": "<div class='text-center p-4 bg-green-50 rounded-lg'><p class='text-lg'>Sarah <span class='bg-orange-200 px-2 py-1 rounded font-bold'>runs</span> every morning.</p></div>",
+      "answer": "runs",
+      "explanation": "'Runs' is a verb because it shows action. It tells us what Sarah does every morning."
+    },
+    {
+      "problem": "Identify both: 'The cat sleeps on the mat.'",
+      "visual": "<div class='text-center p-4 bg-purple-50 rounded-lg'><p class='text-lg'>The <span class='bg-yellow-200 px-2 py-1 rounded font-bold'>cat</span> <span class='bg-orange-200 px-2 py-1 rounded font-bold'>sleeps</span> on the <span class='bg-yellow-200 px-2 py-1 rounded font-bold'>mat</span>.</p></div>",
+      "answer": "cat (noun), sleeps (verb), mat (noun)",
+      "explanation": "'Cat' and 'mat' are nouns (they name things), while 'sleeps' is a verb (it shows what the cat does)."
+    }
+  ],
+  "quiz": [
+    {
+      "question": "Which word is a NOUN in this sentence: 'The teacher explains the lesson.'",
+      "options": ["teacher", "explains", "the", "lesson"],
+      "correctAnswer": 0,
+      "explanation": "'Teacher' is a noun because it names a person. 'Lesson' is also a noun, but 'teacher' comes first in the options!",
+      "visual": "<div class='text-center p-6 bg-blue-50 rounded-lg'><p class='text-xl'>The <span class='bg-yellow-200 px-2 py-1 rounded font-bold'>teacher</span> explains the lesson.</p></div>"
+    },
+    {
+      "question": "Which word is a VERB in this sentence: 'Birds fly in the sky.'",
+      "options": ["Birds", "fly", "in", "sky"],
+      "correctAnswer": 1,
+      "explanation": "'Fly' is a verb because it shows action - it tells us what the birds do.",
+      "visual": "<div class='text-center p-6 bg-green-50 rounded-lg'><p class='text-xl'>Birds <span class='bg-orange-200 px-2 py-1 rounded font-bold'>fly</span> in the sky.</p></div>"
+    },
+    {
+      "question": "How many NOUNS are in this sentence: 'The student reads a book in the library.'",
+      "options": ["1", "2", "3", "4"],
+      "correctAnswer": 2,
+      "explanation": "There are 3 nouns: 'student' (person), 'book' (thing), and 'library' (place).",
+      "visual": "<div class='text-center p-6 bg-purple-50 rounded-lg'><p class='text-xl'>The <span class='bg-yellow-200 px-2 py-1 rounded font-bold'>student</span> reads a <span class='bg-yellow-200 px-2 py-1 rounded font-bold'>book</span> in the <span class='bg-yellow-200 px-2 py-1 rounded font-bold'>library</span>.</p></div>"
+    },
+    {
+      "question": "Which sentence has the correct noun and verb?",
+      "options": [
+        "The happy jumps high",
+        "The rabbit jumps high",
+        "The rabbit happy high",
+        "Jumps high rabbit the"
+      ],
+      "correctAnswer": 1,
+      "explanation": "'The rabbit jumps high' is correct. 'Rabbit' is the noun (names an animal) and 'jumps' is the verb (shows action).",
+      "visual": "<div class='text-center p-6 bg-teal-50 rounded-lg'><p class='text-xl'>The <span class='bg-yellow-200 px-2 py-1 rounded font-bold'>rabbit</span> <span class='bg-orange-200 px-2 py-1 rounded font-bold'>jumps</span> high.</p></div>"
+    },
+    {
+      "question": "What type of noun is 'happiness'?",
+      "options": ["Person", "Place", "Thing", "Idea"],
+      "correctAnswer": 3,
+      "explanation": "'Happiness' is an abstract noun - it names an idea or feeling that you can't touch or see, but you can feel it!",
+      "visual": "<div class='text-center p-6 bg-pink-50 rounded-lg'><p class='text-xl'>Abstract Noun: <span class='bg-yellow-200 px-2 py-1 rounded font-bold'>happiness</span><br><small class='text-gray-600'>You can feel it, but you can't touch it!</small></p></div>"
+    }
+  ],
+  "progression": {
+    "next": "english-adjectives-adverbs",
+    "prerequisites": []
+  }
+}

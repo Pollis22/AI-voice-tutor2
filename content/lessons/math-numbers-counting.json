@@ -1,0 +1,73 @@
+{
+  "title": "Numbers & Counting - Addition Basics",
+  "description": "Learn the fundamentals of addition with numbers 1-10. Understand the concept of combining quantities and practice basic addition facts.",
+  "objective": "In this lesson, we'll explore the fundamentals of addition with numbers 1-10. You'll learn to recognize addition problems, understand the concept of combining quantities, and practice basic addition facts.",
+  "concepts": [
+    "Addition means combining two or more numbers",
+    "The + symbol represents addition",
+    "The = symbol shows the result",
+    "Order doesn't matter in addition (3+2 = 2+3)",
+    "Addition is like putting groups together"
+  ],
+  "examples": [
+    {
+      "problem": "2 + 3 = ?",
+      "visual": "<div class='flex justify-center space-x-2 mb-3'><div class='w-8 h-8 bg-blue-500 rounded-full'></div><div class='w-8 h-8 bg-blue-500 rounded-full'></div><span class='text-xl text-gray-500'>+</span><div class='w-8 h-8 bg-green-500 rounded-full'></div><div class='w-8 h-8 bg-green-500 rounded-full'></div><div class='w-8 h-8 bg-green-500 rounded-full'></div></div>",
+      "answer": "5",
+      "explanation": "When we combine 2 items with 3 items, we get 5 items total. Count them all together!"
+    },
+    {
+      "problem": "4 + 1 = ?",
+      "visual": "<div class='flex justify-center space-x-2 mb-3'><div class='w-8 h-8 bg-green-500 rounded-full'></div><div class='w-8 h-8 bg-green-500 rounded-full'></div><div class='w-8 h-8 bg-green-500 rounded-full'></div><div class='w-8 h-8 bg-green-500 rounded-full'></div><span class='text-xl text-gray-500'>+</span><div class='w-8 h-8 bg-orange-500 rounded-full'></div></div>",
+      "answer": "5",
+      "explanation": "Starting with 4 items and adding 1 more gives us 5 items. You can count forward: 4... 5!"
+    },
+    {
+      "problem": "1 + 1 = ?",
+      "visual": "<div class='flex justify-center space-x-2 mb-3'><div class='w-8 h-8 bg-purple-500 rounded-full'></div><span class='text-xl text-gray-500'>+</span><div class='w-8 h-8 bg-purple-500 rounded-full'></div></div>",
+      "answer": "2",
+      "explanation": "One plus one equals two. This is one of the most basic addition facts!"
+    }
+  ],
+  "quiz": [
+    {
+      "question": "What is 7 + 3?",
+      "options": ["8", "9", "10", "11"],
+      "correctAnswer": 2,
+      "explanation": "7 + 3 = 10. You can count up from 7: 8, 9, 10. Or count all together!",
+      "visual": "<div class='flex justify-center items-center space-x-4 mb-8'><div class='flex space-x-1'><div class='w-6 h-6 bg-blue-500 rounded-full'></div><div class='w-6 h-6 bg-blue-500 rounded-full'></div><div class='w-6 h-6 bg-blue-500 rounded-full'></div><div class='w-6 h-6 bg-blue-500 rounded-full'></div><div class='w-6 h-6 bg-blue-500 rounded-full'></div><div class='w-6 h-6 bg-blue-500 rounded-full'></div><div class='w-6 h-6 bg-blue-500 rounded-full'></div></div><span class='text-3xl text-gray-500'>+</span><div class='flex space-x-1'><div class='w-6 h-6 bg-green-500 rounded-full'></div><div class='w-6 h-6 bg-green-500 rounded-full'></div><div class='w-6 h-6 bg-green-500 rounded-full'></div></div><span class='text-3xl text-gray-500'>=</span><span class='text-3xl text-gray-500'>?</span></div>"
+    },
+    {
+      "question": "What is 5 + 2?",
+      "options": ["6", "7", "8", "9"],
+      "correctAnswer": 1,
+      "explanation": "5 + 2 = 7. Start with 5 and count up 2 more: 6, 7!",
+      "visual": "<div class='flex justify-center items-center space-x-4 mb-8'><div class='flex space-x-1'><div class='w-6 h-6 bg-red-500 rounded-full'></div><div class='w-6 h-6 bg-red-500 rounded-full'></div><div class='w-6 h-6 bg-red-500 rounded-full'></div><div class='w-6 h-6 bg-red-500 rounded-full'></div><div class='w-6 h-6 bg-red-500 rounded-full'></div></div><span class='text-3xl text-gray-500'>+</span><div class='flex space-x-1'><div class='w-6 h-6 bg-yellow-500 rounded-full'></div><div class='w-6 h-6 bg-yellow-500 rounded-full'></div></div><span class='text-3xl text-gray-500'>=</span><span class='text-3xl text-gray-500'>?</span></div>"
+    },
+    {
+      "question": "What is 3 + 4?",
+      "options": ["6", "7", "8", "5"],
+      "correctAnswer": 1,
+      "explanation": "3 + 4 = 7. Remember, you can add in any order: 3 + 4 or 4 + 3 both equal 7!",
+      "visual": "<div class='flex justify-center items-center space-x-4 mb-8'><div class='flex space-x-1'><div class='w-6 h-6 bg-purple-500 rounded-full'></div><div class='w-6 h-6 bg-purple-500 rounded-full'></div><div class='w-6 h-6 bg-purple-500 rounded-full'></div></div><span class='text-3xl text-gray-500'>+</span><div class='flex space-x-1'><div class='w-6 h-6 bg-orange-500 rounded-full'></div><div class='w-6 h-6 bg-orange-500 rounded-full'></div><div class='w-6 h-6 bg-orange-500 rounded-full'></div><div class='w-6 h-6 bg-orange-500 rounded-full'></div></div><span class='text-3xl text-gray-500'>=</span><span class='text-3xl text-gray-500'>?</span></div>"
+    },
+    {
+      "question": "What is 6 + 1?",
+      "options": ["5", "6", "7", "8"],
+      "correctAnswer": 2,
+      "explanation": "6 + 1 = 7. Adding 1 to any number gives you the next number!",
+      "visual": "<div class='flex justify-center items-center space-x-4 mb-8'><div class='flex space-x-1'><div class='w-6 h-6 bg-teal-500 rounded-full'></div><div class='w-6 h-6 bg-teal-500 rounded-full'></div><div class='w-6 h-6 bg-teal-500 rounded-full'></div><div class='w-6 h-6 bg-teal-500 rounded-full'></div><div class='w-6 h-6 bg-teal-500 rounded-full'></div><div class='w-6 h-6 bg-teal-500 rounded-full'></div></div><span class='text-3xl text-gray-500'>+</span><div class='flex space-x-1'><div class='w-6 h-6 bg-pink-500 rounded-full'></div></div><span class='text-3xl text-gray-500'>=</span><span class='text-3xl text-gray-500'>?</span></div>"
+    },
+    {
+      "question": "What is 2 + 5?",
+      "options": ["7", "6", "8", "3"],
+      "correctAnswer": 0,
+      "explanation": "2 + 5 = 7. This is the same as 5 + 2 = 7. Order doesn't change the answer!",
+      "visual": "<div class='flex justify-center items-center space-x-4 mb-8'><div class='flex space-x-1'><div class='w-6 h-6 bg-indigo-500 rounded-full'></div><div class='w-6 h-6 bg-indigo-500 rounded-full'></div></div><span class='text-3xl text-gray-500'>+</span><div class='flex space-x-1'><div class='w-6 h-6 bg-cyan-500 rounded-full'></div><div class='w-6 h-6 bg-cyan-500 rounded-full'></div><div class='w-6 h-6 bg-cyan-500 rounded-full'></div><div class='w-6 h-6 bg-cyan-500 rounded-full'></div><div class='w-6 h-6 bg-cyan-500 rounded-full'></div></div><span class='text-3xl text-gray-500'>=</span><span class='text-3xl text-gray-500'>?</span></div>"
+    }
+  ],
+  "progression": {
+    "next": "math-subtraction-basics",
+    "prerequisites": []
+  }
+}

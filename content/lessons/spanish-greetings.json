@@ -1,0 +1,73 @@
+{
+  "title": "Saludos - Spanish Greetings",
+  "description": "¡Hola! Learn essential Spanish greetings and polite expressions for everyday conversations.",
+  "objective": "In this lesson, you'll master common Spanish greetings, farewells, and polite expressions. You'll learn proper pronunciation and when to use formal vs. informal greetings.",
+  "concepts": [
+    "Spanish has formal (usted) and informal (tú) ways to greet people",
+    "Time of day affects which greeting to use",
+    "Pronunciation: 'H' is always silent in Spanish",
+    "Rolling your 'R's takes practice - don't worry if it's hard at first!",
+    "Spanish speakers often use more physical greetings (hugs, kisses on cheek)"
+  ],
+  "examples": [
+    {
+      "problem": "How do you say 'Hello' in Spanish?",
+      "visual": "<div class='text-center p-4 bg-yellow-50 rounded-lg'><p class='text-3xl font-bold text-orange-600'>¡Hola!</p><p class='text-lg text-gray-600'>Pronunciation: OH-lah</p></div>",
+      "answer": "¡Hola!",
+      "explanation": "¡Hola! is the most common way to say hello in Spanish. The 'H' is silent, so it sounds like 'OH-lah'. Use it with friends, family, or anyone your age."
+    },
+    {
+      "problem": "How do you ask 'How are you?' formally?",
+      "visual": "<div class='text-center p-4 bg-blue-50 rounded-lg'><p class='text-2xl font-bold text-blue-600'>¿Cómo está usted?</p><p class='text-lg text-gray-600'>Pronunciation: KOH-moh ehs-TAH oos-TEHD</p></div>",
+      "answer": "¿Cómo está usted?",
+      "explanation": "Use this formal version with older people, strangers, or in professional settings. 'Usted' is the formal 'you' in Spanish."
+    },
+    {
+      "problem": "How do you say 'Good morning'?",
+      "visual": "<div class='text-center p-4 bg-green-50 rounded-lg'><p class='text-2xl font-bold text-green-600'>Buenos días</p><p class='text-lg text-gray-600'>Pronunciation: BWAY-nohs DEE-ahs</p><p class='text-sm text-gray-500'>Use until about noon</p></div>",
+      "answer": "Buenos días",
+      "explanation": "'Buenos días' means 'good morning' and is used from sunrise until about noon. It's polite and can be used formally or informally."
+    }
+  ],
+  "quiz": [
+    {
+      "question": "What is the most common way to say 'Hello' in Spanish?",
+      "options": ["¡Adiós!", "¡Hola!", "Gracias", "Por favor"],
+      "correctAnswer": 1,
+      "explanation": "¡Hola! (OH-lah) is the most common greeting. Remember, the 'H' is silent in Spanish!",
+      "visual": "<div class='text-center p-6 bg-yellow-50 rounded-lg'><p class='text-4xl font-bold text-orange-600'>¡Hola!</p><p class='text-lg text-gray-600'>The universal Spanish greeting</p></div>"
+    },
+    {
+      "question": "Which greeting would you use in the evening?",
+      "options": ["Buenos días", "Buenas tardes", "Buenas noches", "¡Hola!"],
+      "correctAnswer": 2,
+      "explanation": "'Buenas noches' is used in the evening/night (after about 6-8 PM). It means both 'good evening' (greeting) and 'good night' (farewell).",
+      "visual": "<div class='text-center p-6 bg-indigo-50 rounded-lg'><p class='text-3xl font-bold text-indigo-600'>Buenas noches</p><p class='text-lg text-gray-600'>BWAY-nahs NOH-chehs</p><p class='text-sm text-gray-500'>🌙 Evening greeting</p></div>"
+    },
+    {
+      "question": "How do you ask 'How are you?' informally?",
+      "options": ["¿Cómo está usted?", "¿Cómo estás?", "¿Cómo te llamas?", "¿De dónde eres?"],
+      "correctAnswer": 1,
+      "explanation": "'¿Cómo estás?' is the informal way to ask 'How are you?' Use this with friends, family, and people your age.",
+      "visual": "<div class='text-center p-6 bg-pink-50 rounded-lg'><p class='text-2xl font-bold text-pink-600'>¿Cómo estás?</p><p class='text-lg text-gray-600'>KOH-moh ehs-TAHS</p><p class='text-sm text-gray-500'>👫 Informal - for friends</p></div>"
+    },
+    {
+      "question": "What does '¡Adiós!' mean?",
+      "options": ["Hello", "Thank you", "Goodbye", "Please"],
+      "correctAnswer": 2,
+      "explanation": "'¡Adiós!' means 'Goodbye!' It's pronounced 'ah-DYOHS' and is used when you're leaving and won't see the person again soon.",
+      "visual": "<div class='text-center p-6 bg-red-50 rounded-lg'><p class='text-3xl font-bold text-red-600'>¡Adiós!</p><p class='text-lg text-gray-600'>ah-DYOHS</p><p class='text-sm text-gray-500'>👋 Goodbye - when leaving</p></div>"
+    },
+    {
+      "question": "Which response means 'Very well, thank you'?",
+      "options": ["Muy mal, gracias", "Muy bien, gracias", "No muy bien", "Regular"],
+      "correctAnswer": 1,
+      "explanation": "'Muy bien, gracias' means 'Very well, thank you.' This is a polite, positive response when someone asks how you are.",
+      "visual": "<div class='text-center p-6 bg-green-50 rounded-lg'><p class='text-2xl font-bold text-green-600'>Muy bien, gracias</p><p class='text-lg text-gray-600'>mwee bee-EHN, GRAH-thyahs</p><p class='text-sm text-gray-500'>😊 Positive response</p></div>"
+    }
+  ],
+  "progression": {
+    "next": "spanish-introductions",
+    "prerequisites": []
+  }
+}
