@@ -17,13 +17,10 @@ export default function LessonPage() {
   const { toast } = useToast();
   const [currentStep, setCurrentStep] = useState(0);
 
-  const { data: lesson, isLoading, error } = useQuery({
+  const { data: lesson, isLoading } = useQuery({
     queryKey: ["/api/lessons", lessonId],
     enabled: !!user && !!lessonId,
   });
-
-  // Debug logging
-  console.log("Lesson page debug:", { lessonId, lesson, isLoading, error, user: !!user });
 
   const progressMutation = useMutation({
     mutationFn: async (data: { progressPercentage: number; status: string }) => {
