@@ -1,10 +1,19 @@
 import crypto from 'crypto';
+import * as sdk from 'microsoft-cognitiveservices-speech-sdk';
+import OpenAI from 'openai';
 
 class VoiceService {
   private testMode: boolean;
+  private openai: OpenAI | null = null;
 
   constructor() {
     this.testMode = process.env.VOICE_TEST_MODE === '1';
+    
+    if (!this.testMode && process.env.OPENAI_API_KEY) {
+      this.openai = new OpenAI({
+        apiKey: process.env.OPENAI_API_KEY,
+      });
+    }
   }
 
   async generateLiveToken(userId: string): Promise<string> {
@@ -13,17 +22,18 @@ class VoiceService {
       return `mock_token_${userId}_${Date.now()}`;
     }
 
-    if (!process.env.OPENAI_API_KEY) {
+    if (!this.openai) {
       throw new Error('OpenAI API key not configured');
     }
 
-    // Generate ephemeral token for OpenAI Realtime API
-    // In a real implementation, this would interact with OpenAI's realtime API
-    // For now, we'll create a signed token with user context
+    // Generate secure ephemeral token without exposing API key
+    // Token is server-side only and will be validated on backend
     const payload = {
       userId,
       timestamp: Date.now(),
       service: 'openai_realtime',
+      // Never include actual API key in payload sent to client
+      sessionId: crypto.randomUUID(),
     };
 
     const token = crypto
@@ -44,10 +54,14 @@ class VoiceService {
     }
 
     return {
-      apiKey: process.env.OPENAI_API_KEY,
+      url: 'wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview',
       model: 'gpt-4o-realtime-preview',
       voice: 'alloy',
-      instructions: `You are a friendly, patient AI tutor. Use a Socratic teaching method - guide students to discover answers rather than giving direct answers immediately. Be encouraging and adapt your teaching style to the student's pace.`,
+      instructions: `You are a friendly, patient AI tutor. Use a Socratic teaching method - guide students to discover answers rather than giving direct answers immediately. Be encouraging and adapt your teaching style to the student's pace. Keep responses conversational and age-appropriate.`,
+      input_audio_format: 'pcm16',
+      output_audio_format: 'pcm16',
+      temperature: 0.7,
+      max_response_output_tokens: 2048,
     };
   }
 
@@ -57,8 +71,9 @@ class VoiceService {
       return `data:audio/wav;base64,mock_audio_${Date.now()}`;
     }
 
-    if (!process.env.AZURE_SPEECH_KEY || !process.env.AZURE_SPEECH_REGION) {
-      throw new Error('Azure Speech services not configured');
+    // Validate environment variables are non-empty
+    if (!process.env.AZURE_SPEECH_KEY?.trim() || !process.env.AZURE_SPEECH_REGION?.trim()) {
+      throw new Error('Azure Speech services not configured - AZURE_SPEECH_KEY and AZURE_SPEECH_REGION must be set');
     }
 
     try {
@@ -89,30 +104,79 @@ class VoiceService {
     };
 
     const voice = voiceMap[style as keyof typeof voiceMap] || voiceMap.cheerful;
-    const styleAttribute = style === 'professional' ? '' : `style="${style}"`;
+    
+    // Escape XML special characters in text content
+    const escapedText = text
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&apos;');
 
-    return `
-      <speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="en-US">
-        <voice name="${voice}">
-          <prosody rate="medium" pitch="medium">
-            <express-as ${styleAttribute}>
-              ${text}
-            </express-as>
-          </prosody>
-        </voice>
-      </speak>
-    `.trim();
+    // Build SSML with correct mstts namespace and tags
+    if (style === 'professional') {
+      return `
+        <speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="en-US">
+          <voice name="${voice}">
+            <prosody rate="medium" pitch="medium">
+              ${escapedText}
+            </prosody>
+          </voice>
+        </speak>
+      `.trim();
+    } else {
+      return `
+        <speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xmlns:mstts="https://www.w3.org/2001/mstts" xml:lang="en-US">
+          <voice name="${voice}">
+            <mstts:express-as style="${style}">
+              <prosody rate="medium" pitch="medium">
+                ${escapedText}
+              </prosody>
+            </mstts:express-as>
+          </voice>
+        </speak>
+      `.trim();
+    }
   }
 
   private async synthesizeSpeech(ssml: string, config: any): Promise<string> {
-    // Mock implementation - in production this would call Azure Speech Services
-    // and return a real audio URL or stream
-    
-    // Simulate API call delay
-    await new Promise(resolve => setTimeout(resolve, 500));
-    
-    // Return a mock URL that would point to generated audio
-    return `https://speech-service.azure.com/audio/${crypto.randomBytes(16).toString('hex')}.wav`;
+    try {
+      // Configure Azure Speech SDK
+      const speechConfig = sdk.SpeechConfig.fromSubscription(
+        config.subscriptionKey,
+        config.region
+      );
+      
+      // Set output format
+      speechConfig.speechSynthesisOutputFormat = sdk.SpeechSynthesisOutputFormat.Audio16Khz32KBitRateMonoMp3;
+      
+      // Create synthesizer
+      const synthesizer = new sdk.SpeechSynthesizer(speechConfig);
+      
+      return new Promise<string>((resolve, reject) => {
+        synthesizer.speakSsmlAsync(
+          ssml,
+          (result) => {
+            if (result.reason === sdk.ResultReason.SynthesizingAudioCompleted) {
+              // Convert audio buffer to base64 data URL
+              const audioBase64 = Buffer.from(result.audioData).toString('base64');
+              const dataUrl = `data:audio/mp3;base64,${audioBase64}`;
+              resolve(dataUrl);
+            } else {
+              reject(new Error(`Speech synthesis failed: ${result.errorDetails}`));
+            }
+            synthesizer.close();
+          },
+          (error) => {
+            synthesizer.close();
+            reject(error);
+          }
+        );
+      });
+    } catch (error) {
+      console.error('Azure TTS error:', error);
+      throw new Error('Failed to synthesize speech with Azure TTS');
+    }
   }
 
   validateVoiceToken(token: string): { valid: boolean; userId?: string } {
