@@ -20,11 +20,13 @@ export function useVoice() {
   const [isMuted, setIsMuted] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
+  const [sessionStartTime, setSessionStartTime] = useState<number | null>(null);
   
   const { toast } = useToast();
   const realtimeConnectionRef = useRef<any>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
+  const conversationTimeoutsRef = useRef<NodeJS.Timeout[]>([]);
 
   // Get voice token mutation
   const getTokenMutation = useMutation({
@@ -97,26 +99,46 @@ export function useVoice() {
   const setupRealtimeConnection = useCallback(async (token: string, config: VoiceConfig) => {
     try {
       if (config.testMode) {
-        // Test mode with browser text-to-speech
+        // Test mode with browser text-to-speech (no microphone needed)
         const speechService = getTestSpeechService();
         setIsConnected(true);
         
-        // Start with a greeting immediately
-        console.log('Starting test mode TTS with greeting...');
-        setTimeout(() => {
-          console.log('About to speak greeting:', testLessonMessages.greeting);
-          speechService.speak(testLessonMessages.greeting).catch(err => {
-            console.error('TTS failed:', err);
-          });
-        }, 500);
+        // Create a conversational sequence
+        let conversationStep = 0;
+        const conversationFlow = [
+          testLessonMessages.greeting,
+          testLessonMessages.lesson,
+          testLessonMessages.question,
+          testLessonMessages.encouragement,
+          testLessonMessages.feedback,
+          testLessonMessages.ending
+        ];
         
-        // Simulate lesson progression
-        let messageIndex = 0;
-        const messages = Object.values(testLessonMessages);
+        const runConversation = () => {
+          if (conversationStep < conversationFlow.length) {
+            const message = conversationFlow[conversationStep];
+            console.log(`Speaking step ${conversationStep + 1}:`, message);
+            speechService.speak(message);
+            conversationStep++;
+            
+            // Continue conversation every 12 seconds - track timeout for cleanup
+            if (conversationStep < conversationFlow.length) {
+              const timeoutId = setTimeout(runConversation, 12000);
+              conversationTimeoutsRef.current.push(timeoutId);
+            }
+          }
+        };
+        
+        // Start conversation after a brief delay - track timeout for cleanup
+        const initialTimeoutId = setTimeout(() => {
+          console.log('Starting conversational AI tutor...');
+          runConversation();
+        }, 1000);
+        conversationTimeoutsRef.current.push(initialTimeoutId);
         
         return {
           connect: () => {
-            console.log('Test mode: Voice connected with browser TTS');
+            console.log('Test mode: Conversational AI tutor started');
             return Promise.resolve();
           },
           disconnect: () => {
@@ -125,12 +147,9 @@ export function useVoice() {
             return Promise.resolve();
           },
           send: (data: any) => {
-            console.log('Test mode received:', data);
-            // Simulate AI response after user input
-            setTimeout(() => {
-              messageIndex = (messageIndex + 1) % messages.length;
-              speechService.speak(messages[messageIndex]);
-            }, 1500);
+            console.log('User interaction:', data);
+            // Continue with next conversation step on interaction
+            setTimeout(runConversation, 2000);
           },
           mute: () => {
             speechService.pause();
@@ -177,13 +196,33 @@ export function useVoice() {
       // Get voice token and config
       const { token, config } = await getTokenMutation.mutateAsync();
       
-      // Initialize audio context (requires user gesture)
-      await initializeAudioContext();
+      console.log('Voice config received:', config);
       
-      // Get microphone access
+      // For test mode, skip all microphone/audio setup - just start conversational tutor
+      if (config.testMode) {
+        console.log('Test mode detected: Starting conversational tutor without microphone');
+        
+        // Setup realtime connection for test mode
+        const connection = await setupRealtimeConnection(token, config);
+        realtimeConnectionRef.current = connection;
+        
+        await connection.connect();
+        setIsActive(true);
+        setSessionStartTime(Date.now()); // Track when session started
+        
+        toast({
+          title: "Voice tutor started",
+          description: "Your AI tutor is speaking! Listen for verbal instructions.",
+        });
+        return;
+      }
+      
+      // For real mode, setup audio and microphone
+      console.log('Real mode: Setting up audio and microphone');
+      await initializeAudioContext();
       await getUserMedia();
       
-      // Setup realtime connection
+      // Setup realtime connection for real mode
       const connection = await setupRealtimeConnection(token, config);
       realtimeConnectionRef.current = connection;
       
@@ -191,6 +230,7 @@ export function useVoice() {
       await connection.connect();
       
       setIsActive(true);
+      setSessionStartTime(Date.now()); // Track when session started (real mode)
       
       toast({
         title: "Voice session started",
@@ -213,18 +253,27 @@ export function useVoice() {
   }, [getTokenMutation, startSessionMutation, initializeAudioContext, getUserMedia, setupRealtimeConnection, toast]);
 
   const endVoiceSession = useCallback(async () => {
+    console.log('endVoiceSession called - starting cleanup...');
     try {
-      const voiceMinutesUsed = Math.ceil((Date.now() - (sessionId ? 0 : Date.now())) / 60000); // Mock calculation
+      // Calculate actual elapsed time in minutes
+      const sessionDuration = sessionStartTime ? Date.now() - sessionStartTime : 0;
+      const voiceMinutesUsed = Math.ceil(sessionDuration / 60000);
+      
+      console.log(`Voice session ended. Duration: ${sessionDuration}ms, Minutes: ${voiceMinutesUsed}`);
       
       if (sessionId) {
+        console.log('Calling end session mutation...');
         await endSessionMutation.mutateAsync({
           sessionId,
           voiceMinutesUsed,
           transcript: "Voice session transcript placeholder", // Would be actual transcript
         });
+        console.log('End session mutation completed');
       }
       
+      console.log('Calling cleanup...');
       cleanup();
+      console.log('Cleanup completed');
       
       toast({
         title: "Voice session ended",
@@ -241,9 +290,13 @@ export function useVoice() {
         variant: "destructive",
       });
     }
-  }, [sessionId, endSessionMutation, toast]);
+  }, [sessionId, endSessionMutation, toast, sessionStartTime]);
 
   const cleanup = useCallback(() => {
+    // Clear all conversation timeouts to prevent callbacks after session ends
+    conversationTimeoutsRef.current.forEach(timeoutId => clearTimeout(timeoutId));
+    conversationTimeoutsRef.current = [];
+    
     // Disconnect realtime connection
     if (realtimeConnectionRef.current) {
       realtimeConnectionRef.current.disconnect();
@@ -267,6 +320,7 @@ export function useVoice() {
     setIsMuted(false);
     setError(null);
     setSessionId(null);
+    setSessionStartTime(null);
   }, []);
 
   const muteAudio = useCallback(() => {

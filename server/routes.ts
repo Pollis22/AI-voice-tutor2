@@ -34,7 +34,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const user = req.user as any;
       const token = await voiceService.generateLiveToken(user.id);
-      res.json({ token, config: voiceService.getRealtimeConfig() });
+      const config = voiceService.getRealtimeConfig();
+      
+      console.log('Voice token request - returning config:', config);
+      
+      res.json({ token, config });
     } catch (error: any) {
       res.status(500).json({ message: "Error generating voice token: " + error.message });
     }
