@@ -29,7 +29,6 @@ export function VoiceControls({ lessonId }: VoiceControlsProps) {
   };
 
   const handleEndVoice = () => {
-    console.log('End Voice button clicked - calling endVoiceSession...');
     endVoiceSession();
   };
 

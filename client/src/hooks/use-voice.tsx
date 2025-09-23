@@ -253,27 +253,20 @@ export function useVoice() {
   }, [getTokenMutation, startSessionMutation, initializeAudioContext, getUserMedia, setupRealtimeConnection, toast]);
 
   const endVoiceSession = useCallback(async () => {
-    console.log('endVoiceSession called - starting cleanup...');
     try {
       // Calculate actual elapsed time in minutes
       const sessionDuration = sessionStartTime ? Date.now() - sessionStartTime : 0;
       const voiceMinutesUsed = Math.ceil(sessionDuration / 60000);
       
-      console.log(`Voice session ended. Duration: ${sessionDuration}ms, Minutes: ${voiceMinutesUsed}`);
-      
       if (sessionId) {
-        console.log('Calling end session mutation...');
         await endSessionMutation.mutateAsync({
           sessionId,
           voiceMinutesUsed,
           transcript: "Voice session transcript placeholder", // Would be actual transcript
         });
-        console.log('End session mutation completed');
       }
       
-      console.log('Calling cleanup...');
       cleanup();
-      console.log('Cleanup completed');
       
       toast({
         title: "Voice session ended",
