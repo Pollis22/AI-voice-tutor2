@@ -162,6 +162,11 @@ export class DatabaseStorage implements IStorage {
   }
 
   async canUserUseVoice(userId: string): Promise<boolean> {
+    // Always allow voice usage when in test mode
+    if (process.env.AUTH_TEST_MODE === 'true') {
+      return true;
+    }
+    
     const user = await this.getUser(userId);
     if (!user) return false;
 
