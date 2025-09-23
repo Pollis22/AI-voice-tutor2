@@ -53,8 +53,8 @@ export function setupAuth(app: Express) {
       
       // Test mode authentication
       if (process.env.AUTH_TEST_MODE === 'true') {
-        // Check if test credentials match
-        if (username === process.env.TEST_USER_EMAIL && password === process.env.TEST_USER_PASSWORD) {
+        // Check if test credentials match (case-insensitive for email)
+        if (username.toLowerCase() === process.env.TEST_USER_EMAIL?.toLowerCase() && password === process.env.TEST_USER_PASSWORD) {
           // Create or get test user
           let user = await storage.getUserByEmail(process.env.TEST_USER_EMAIL!);
           if (!user) {
