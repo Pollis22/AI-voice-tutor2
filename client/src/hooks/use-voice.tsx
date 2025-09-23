@@ -101,10 +101,14 @@ export function useVoice() {
         const speechService = getTestSpeechService();
         setIsConnected(true);
         
-        // Start with a greeting
+        // Start with a greeting immediately
+        console.log('Starting test mode TTS with greeting...');
         setTimeout(() => {
-          speechService.speak(testLessonMessages.greeting);
-        }, 1000);
+          console.log('About to speak greeting:', testLessonMessages.greeting);
+          speechService.speak(testLessonMessages.greeting).catch(err => {
+            console.error('TTS failed:', err);
+          });
+        }, 500);
         
         // Simulate lesson progression
         let messageIndex = 0;
