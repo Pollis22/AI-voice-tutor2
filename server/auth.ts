@@ -43,6 +43,27 @@ export function setupAuth(app: Express) {
 
   passport.use(
     new LocalStrategy(async (username, password, done) => {
+      // Test mode authentication
+      if (process.env.AUTH_TEST_MODE === 'true') {
+        // Check if test credentials match
+        if (username === process.env.TEST_USER_EMAIL && password === process.env.TEST_USER_PASSWORD) {
+          // Create or get test user
+          let user = await storage.getUserByEmail(process.env.TEST_USER_EMAIL!);
+          if (!user) {
+            // Create test user if doesn't exist
+            user = await storage.createUser({
+              username: process.env.TEST_USER_EMAIL!,
+              email: process.env.TEST_USER_EMAIL!,
+              password: await hashPassword(process.env.TEST_USER_PASSWORD!),
+            });
+          }
+          return done(null, user);
+        }
+        // If test credentials don't match, fail authentication
+        return done(null, false);
+      }
+      
+      // Normal authentication flow
       const user = await storage.getUserByUsername(username);
       if (!user || !(await comparePasswords(password, user.password))) {
         return done(null, false);
