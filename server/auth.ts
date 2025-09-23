@@ -43,14 +43,6 @@ export function setupAuth(app: Express) {
 
   passport.use(
     new LocalStrategy(async (username, password, done) => {
-      // Debug logging
-      console.log('Auth attempt:', {
-        username,
-        AUTH_TEST_MODE: process.env.AUTH_TEST_MODE,
-        TEST_USER_EMAIL: process.env.TEST_USER_EMAIL,
-        testModeActive: process.env.AUTH_TEST_MODE === 'true'
-      });
-      
       // Test mode authentication
       if (process.env.AUTH_TEST_MODE === 'true') {
         // Check if test credentials match (case-insensitive for email)

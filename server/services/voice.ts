@@ -7,12 +7,19 @@ class VoiceService {
   private openai: OpenAI | null = null;
 
   constructor() {
-    this.testMode = process.env.VOICE_TEST_MODE === '1';
+    // Enable test mode if explicitly set or if API keys are missing
+    this.testMode = process.env.VOICE_TEST_MODE === '1' || 
+                    !process.env.OPENAI_API_KEY || 
+                    !process.env.AZURE_SPEECH_KEY;
     
     if (!this.testMode && process.env.OPENAI_API_KEY) {
       this.openai = new OpenAI({
         apiKey: process.env.OPENAI_API_KEY,
       });
+    }
+    
+    if (this.testMode) {
+      console.log('Voice service running in TEST MODE - no actual voice synthesis/recognition');
     }
   }
 

@@ -2,6 +2,7 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { getTestSpeechService, testLessonMessages } from "@/utils/test-speech";
 
 interface VoiceConfig {
   testMode?: boolean;
@@ -96,14 +97,45 @@ export function useVoice() {
   const setupRealtimeConnection = useCallback(async (token: string, config: VoiceConfig) => {
     try {
       if (config.testMode) {
-        // Mock implementation for testing
+        // Test mode with browser text-to-speech
+        const speechService = getTestSpeechService();
         setIsConnected(true);
+        
+        // Start with a greeting
+        setTimeout(() => {
+          speechService.speak(testLessonMessages.greeting);
+        }, 1000);
+        
+        // Simulate lesson progression
+        let messageIndex = 0;
+        const messages = Object.values(testLessonMessages);
+        
         return {
-          connect: () => Promise.resolve(),
-          disconnect: () => Promise.resolve(),
-          send: (data: any) => console.log('Mock send:', data),
-          mute: () => setIsMuted(true),
-          unmute: () => setIsMuted(false),
+          connect: () => {
+            console.log('Test mode: Voice connected with browser TTS');
+            return Promise.resolve();
+          },
+          disconnect: () => {
+            speechService.stop();
+            setIsConnected(false);
+            return Promise.resolve();
+          },
+          send: (data: any) => {
+            console.log('Test mode received:', data);
+            // Simulate AI response after user input
+            setTimeout(() => {
+              messageIndex = (messageIndex + 1) % messages.length;
+              speechService.speak(messages[messageIndex]);
+            }, 1500);
+          },
+          mute: () => {
+            speechService.pause();
+            setIsMuted(true);
+          },
+          unmute: () => {
+            speechService.resume();
+            setIsMuted(false);
+          },
         };
       }
 
