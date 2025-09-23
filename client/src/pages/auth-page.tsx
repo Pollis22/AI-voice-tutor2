@@ -12,7 +12,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { useEffect } from "react";
 
 const loginSchema = z.object({
-  username: z.string().min(1, "Username is required"),
+  username: z.string().min(1, "Email or username is required"),
   password: z.string().min(1, "Password is required"),
 });
 
@@ -79,7 +79,7 @@ export default function AuthPage() {
                   </svg>
                 </div>
                 <CardTitle className="text-2xl font-bold text-foreground">AI Tutor</CardTitle>
-                <p className="text-muted-foreground">Sign in to continue your learning journey</p>
+                <p className="text-muted-foreground">Sign in to continue your learning journey<br/><span className="text-sm">Test login: test@example.com / TestPass123!</span></p>
               </CardHeader>
               
               <CardContent>
@@ -97,9 +97,9 @@ export default function AuthPage() {
                           name="username"
                           render={({ field }) => (
                             <FormItem>
-                              <FormLabel>Username</FormLabel>
+                              <FormLabel>Email or Username</FormLabel>
                               <FormControl>
-                                <Input {...field} data-testid="input-username" />
+                                <Input {...field} placeholder="test@example.com" data-testid="input-username" />
                               </FormControl>
                               <FormMessage />
                             </FormItem>
