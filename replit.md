@@ -1,8 +1,11 @@
-# AI Tutor - Conversational Learning Platform
+# AI Tutor - Web Application
+
+## Project Type
+**Web Application** - Full-stack Express.js/React application for deployment via Autoscale
 
 ## Overview
 
-This is a production-ready conversational AI tutoring platform that enables students to learn Math, English, and Spanish through interactive voice conversations, personalized quizzes, and adaptive learning paths. The platform uses advanced AI technologies to provide a Socratic teaching method, adapting to each student's pace and learning style while tracking progress and providing immediate feedback.
+This is a production-ready conversational AI tutoring web platform that enables students to learn Math, English, and Spanish through interactive voice conversations, personalized quizzes, and adaptive learning paths. The platform uses advanced AI technologies to provide a Socratic teaching method, adapting to each student's pace and learning style while tracking progress and providing immediate feedback.
 
 ## User Preferences
 

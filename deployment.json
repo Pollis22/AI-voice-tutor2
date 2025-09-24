@@ -1,0 +1,9 @@
+{
+  "type": "web-application",
+  "deployment": "autoscale",
+  "framework": "express",
+  "frontend": "react",
+  "port": 5000,
+  "notAgent": true,
+  "forceWebApp": true
+}
