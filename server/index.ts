@@ -10,6 +10,14 @@ const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 
+// Explicitly set headers to indicate this is a web application for deployment
+app.use((req, res, next) => {
+  res.setHeader('X-Application-Type', 'web-app');
+  res.setHeader('X-Deployment-Type', 'autoscale');
+  res.setHeader('X-Not-Agent', 'true');
+  next();
+});
+
 app.use((req, res, next) => {
   const start = Date.now();
   const path = req.path;
