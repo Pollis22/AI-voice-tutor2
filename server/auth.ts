@@ -43,6 +43,12 @@ export function setupAuth(app: Express) {
     resave: false,
     saveUninitialized: false,
     store: storage.sessionStore,
+    cookie: {
+      httpOnly: true,
+      secure: false, // Set to false for development (HTTP)
+      sameSite: 'lax', // Allow cookies in iframe
+      maxAge: 24 * 60 * 60 * 1000 // 24 hours
+    }
   };
 
   app.set("trust proxy", 1);
@@ -51,7 +57,7 @@ export function setupAuth(app: Express) {
   app.use(passport.session());
 
   passport.use(
-    new LocalStrategy({ usernameField: 'email' }, async (username, password, done) => {
+    new LocalStrategy(async (username, password, done) => {
       // Test mode authentication - completely DB-independent
       const isTestMode = process.env.AUTH_TEST_MODE === 'true' || process.env.NODE_ENV === 'development';
       const testEmail = process.env.TEST_USER_EMAIL || 'test@example.com';
