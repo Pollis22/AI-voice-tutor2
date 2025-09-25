@@ -19,6 +19,7 @@ import { db } from "./db";
 import { eq, and, desc, asc, count, sum, sql, like, or } from "drizzle-orm";
 import session from "express-session";
 import connectPg from "connect-pg-simple";
+import MemoryStore from "memorystore";
 
 const PostgresSessionStore = connectPg(session);
 
@@ -68,10 +69,11 @@ export class DatabaseStorage implements IStorage {
 
   constructor() {
     // Use MemoryStore for development testing when database is not available
-    if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes('localhost')) {
+    const isTestMode = process.env.AUTH_TEST_MODE === 'true' || process.env.NODE_ENV === 'development';
+    if (isTestMode || !process.env.DATABASE_URL || process.env.DATABASE_URL.includes('localhost')) {
       console.log("Using in-memory session store for development");
-      const MemoryStore = require('memorystore')(session);
-      this.sessionStore = new MemoryStore({
+      const SessionMemoryStore = MemoryStore(session);
+      this.sessionStore = new SessionMemoryStore({
         checkPeriod: 86400000 // prune expired entries every 24h
       });
     } else {
