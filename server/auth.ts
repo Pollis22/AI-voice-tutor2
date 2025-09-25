@@ -29,8 +29,17 @@ async function comparePasswords(supplied: string, stored: string) {
 }
 
 export function setupAuth(app: Express) {
+  // Secure session secret configuration
+  let sessionSecret = process.env.SESSION_SECRET;
+  if (!sessionSecret) {
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('SESSION_SECRET must be set in production');
+    }
+    sessionSecret = 'development-session-secret-only';
+  }
+
   const sessionSettings: session.SessionOptions = {
-    secret: process.env.SESSION_SECRET!,
+    secret: sessionSecret,
     resave: false,
     saveUninitialized: false,
     store: storage.sessionStore,
@@ -42,41 +51,93 @@ export function setupAuth(app: Express) {
   app.use(passport.session());
 
   passport.use(
-    new LocalStrategy(async (username, password, done) => {
-      // Test mode authentication
-      if (process.env.AUTH_TEST_MODE === 'true') {
+    new LocalStrategy({ usernameField: 'email' }, async (username, password, done) => {
+      // Test mode authentication - completely DB-independent
+      const isTestMode = process.env.AUTH_TEST_MODE === 'true' || process.env.NODE_ENV === 'development';
+      const testEmail = process.env.TEST_USER_EMAIL || 'test@example.com';
+      const testPassword = process.env.TEST_USER_PASSWORD || 'TestPass123!';
+      
+      if (isTestMode) {
         // Check if test credentials match (case-insensitive for email)
-        if (username.toLowerCase() === process.env.TEST_USER_EMAIL?.toLowerCase() && password === process.env.TEST_USER_PASSWORD) {
-          // Create or get test user
-          let user = await storage.getUserByEmail(process.env.TEST_USER_EMAIL!);
-          if (!user) {
-            // Create test user if doesn't exist
-            user = await storage.createUser({
-              username: process.env.TEST_USER_EMAIL!,
-              email: process.env.TEST_USER_EMAIL!,
-              password: await hashPassword(process.env.TEST_USER_PASSWORD!),
-            });
-          }
-          return done(null, user);
+        if (username.toLowerCase() === testEmail.toLowerCase() && password === testPassword) {
+          // Return hardcoded test user without DB interaction
+          const testUser = {
+            id: 'test-user-id',
+            username: testEmail,
+            email: testEmail,
+            password: await hashPassword(testPassword),
+            firstName: 'Test',
+            lastName: 'User',
+            subscriptionPlan: 'all' as const,
+            subscriptionStatus: 'active' as const,
+            stripeCustomerId: null,
+            stripeSubscriptionId: null,
+            weeklyVoiceMinutesUsed: 0,
+            weeklyResetDate: new Date(),
+            preferredLanguage: 'english',
+            voiceStyle: 'cheerful',
+            speechSpeed: '1.0',
+            volumeLevel: 75,
+            isAdmin: false,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          };
+          return done(null, testUser);
         }
         // If test credentials don't match, fail authentication
         return done(null, false);
       }
       
       // Normal authentication flow
-      const user = await storage.getUserByUsername(username);
-      if (!user || !(await comparePasswords(password, user.password))) {
-        return done(null, false);
-      } else {
-        return done(null, user);
+      try {
+        const user = await storage.getUserByUsername(username);
+        if (!user || !(await comparePasswords(password, user.password))) {
+          return done(null, false);
+        } else {
+          return done(null, user);
+        }
+      } catch (error) {
+        return done(error);
       }
     }),
   );
 
   passport.serializeUser((user, done) => done(null, user.id));
   passport.deserializeUser(async (id: string, done) => {
-    const user = await storage.getUser(id);
-    done(null, user);
+    // Handle test user deserialization
+    const isTestMode = process.env.AUTH_TEST_MODE === 'true' || process.env.NODE_ENV === 'development';
+    if (isTestMode && id === 'test-user-id') {
+      const testEmail = process.env.TEST_USER_EMAIL || 'test@example.com';
+      const testUser = {
+        id: 'test-user-id',
+        username: testEmail,
+        email: testEmail,
+        password: await hashPassword(process.env.TEST_USER_PASSWORD || 'TestPass123!'),
+        firstName: 'Test',
+        lastName: 'User',
+        subscriptionPlan: 'all' as const,
+        subscriptionStatus: 'active' as const,
+        stripeCustomerId: null,
+        stripeSubscriptionId: null,
+        weeklyVoiceMinutesUsed: 0,
+        weeklyResetDate: new Date(),
+        preferredLanguage: 'english',
+        voiceStyle: 'cheerful',
+        speechSpeed: '1.0',
+        volumeLevel: 75,
+        isAdmin: false,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+      return done(null, testUser);
+    }
+    
+    try {
+      const user = await storage.getUser(id);
+      done(null, user);
+    } catch (error) {
+      done(null, null);
+    }
   });
 
   app.post("/api/register", async (req, res, next) => {

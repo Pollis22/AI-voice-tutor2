@@ -6,6 +6,11 @@ import * as dotenv from "dotenv";
 // Load environment variables from .env file
 dotenv.config();
 
+// Enable test mode by default in development
+if (process.env.NODE_ENV === 'development' && !process.env.AUTH_TEST_MODE) {
+  process.env.AUTH_TEST_MODE = 'true';
+}
+
 const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));

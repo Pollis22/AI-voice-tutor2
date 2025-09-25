@@ -67,10 +67,19 @@ export class DatabaseStorage implements IStorage {
   sessionStore: session.Store;
 
   constructor() {
-    this.sessionStore = new PostgresSessionStore({ 
-      conString: process.env.DATABASE_URL,
-      createTableIfMissing: false 
-    });
+    // Use MemoryStore for development testing when database is not available
+    if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes('localhost')) {
+      console.log("Using in-memory session store for development");
+      const MemoryStore = require('memorystore')(session);
+      this.sessionStore = new MemoryStore({
+        checkPeriod: 86400000 // prune expired entries every 24h
+      });
+    } else {
+      this.sessionStore = new PostgresSessionStore({ 
+        conString: process.env.DATABASE_URL,
+        createTableIfMissing: false 
+      });
+    }
   }
 
   async getUser(id: string): Promise<User | undefined> {
@@ -163,7 +172,8 @@ export class DatabaseStorage implements IStorage {
 
   async canUserUseVoice(userId: string): Promise<boolean> {
     // Always allow voice usage when in test mode
-    if (process.env.AUTH_TEST_MODE === 'true') {
+    const isTestMode = process.env.AUTH_TEST_MODE === 'true' || process.env.NODE_ENV === 'development';
+    if (isTestMode) {
       return true;
     }
     
