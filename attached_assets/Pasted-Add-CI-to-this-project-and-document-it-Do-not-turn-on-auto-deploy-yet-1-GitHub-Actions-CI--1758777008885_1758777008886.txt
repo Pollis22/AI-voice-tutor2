@@ -1,0 +1,88 @@
+Add CI to this project and document it. Do not turn on auto-deploy yet.
+
+1) GitHub Actions – CI
+   - Create .github/workflows/ci.yml that runs on:
+     - pull_request to staging and main
+     - push to staging and main
+   - Steps:
+     - Use Node 20
+     - npm ci
+     - npm run build
+     - Install Playwright with dependencies
+     - Run E2E tests with fake media flags and VOICE_TEST_MODE=1
+   - Example ci.yml contents:
+
+     name: CI
+     on:
+       pull_request:
+         branches: [ staging, main ]
+       push:
+         branches: [ staging, main ]
+     jobs:
+       build-and-test:
+         runs-on: ubuntu-latest
+         env:
+           NODE_ENV: test
+           VOICE_TEST_MODE: "1"
+           AUTH_TEST_MODE: "1"
+           TEST_USER_EMAIL: test@example.com
+           TEST_USER_PASSWORD: TestPass123!
+         steps:
+           - uses: actions/checkout@v4
+           - uses: actions/setup-node@v4
+             with:
+               node-version: '20'
+           - run: npm ci
+           - run: npm run build
+           - name: Install Playwright
+             run: npx playwright install --with-deps
+           - name: Run E2E tests (fake media)
+             run: |
+               # Example: npm script should launch Chromium with fake devices
+               # and point tests at http://localhost:3000 (or the dev server you spin up)
+               npm run test:e2e
+             env:
+               # Put any non-secret test keys here or read from repo secrets
+               OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+               AZURE_SPEECH_KEY: ${{ secrets.AZURE_SPEECH_KEY }}
+               AZURE_SPEECH_REGION: ${{ secrets.AZURE_SPEECH_REGION }}
+
+2) Testing harness
+   - Ensure there is a Playwright config + test that:
+     - starts the dev server (Next.js) for tests or uses a built test server
+     - launches Chromium with:
+       --use-fake-device-for-media-stream
+       --use-fake-ui-for-media-stream
+       (document in README)
+     - logs in using test credentials when AUTH_TEST_MODE=1
+     - navigates: home -> lessons -> open a lesson -> click "Start Voice" (mocked) -> verifies UI updates -> saves transcript -> checks Resume card
+   - Add npm scripts:
+     "test:e2e": "playwright test"
+
+3) Documentation
+   - Update README:
+     - CI explanation in plain English
+     - How to run tests locally: npm run build && npm run test:e2e
+     - Where to set GitHub repo secrets: Settings → Secrets and variables → Actions
+     - List required CI secrets (OPENAI_API_KEY, AZURE_SPEECH_KEY, AZURE_SPEECH_REGION)
+     - Note that AUTH_TEST_MODE=1 is used in CI; production should disable it
+
+4) Deployment guidance (no auto-deploy yet)
+   - Keep Replit Deploy as the manual deployment path.
+   - Add a DEPLOY.md with:
+     - Replit Autoscale settings (smallest machine, max 1, healthcheck "/")
+     - Copy of required deployment env variables
+     - Cost-saving tips: autoscale, scale to zero, pause when idle
+   - Add a note about optional CD:
+     - If later we want auto-deploy, we can add a second workflow (staging→Vercel, main→Vercel) or a Replit deploy step, but for now **do not** deploy automatically.
+
+5) Healthcheck + server sanity
+   - Add /api/health returning 200 OK
+   - Ensure "start" script is: next start -p $PORT
+   - Confirm the app binds to process.env.PORT and 0.0.0.0
+
+Deliverables:
+- .github/workflows/ci.yml
+- Playwright config and tests under tests/e2e or similar
+- README and DEPLOY.md updated with instructions and screenshots/notes
+- Verify CI passes on a test PR to staging
