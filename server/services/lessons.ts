@@ -97,6 +97,183 @@ class LessonsService {
       return this.lessonsCache.get(lessonId)!;
     }
 
+    // Return test content in test mode
+    const isTestMode = process.env.AUTH_TEST_MODE === 'true' || process.env.NODE_ENV === 'development';
+    if (isTestMode) {
+      const testContent: Record<string, LessonContent> = {
+        'math-1': {
+          title: 'Introduction to Numbers',
+          description: 'Learn the basics of counting and number recognition',
+          objective: 'Students will be able to count from 1 to 10 and recognize numbers',
+          concepts: ['Numbers 1-10', 'Counting', 'Number recognition'],
+          examples: [
+            { 
+              problem: 'Count from 1 to 10', 
+              visual: '1, 2, 3, 4, 5, 6, 7, 8, 9, 10',
+              answer: 'Counted correctly',
+              explanation: 'Practice counting in sequence'
+            },
+            { 
+              problem: 'Identify the number 5', 
+              visual: 'Circle the number 5',
+              answer: '5',
+              explanation: 'Recognize individual numbers'
+            }
+          ],
+          quiz: [
+            {
+              question: 'What number comes after 5?',
+              options: ['4', '5', '6', '7'],
+              correctAnswer: 2,
+              explanation: 'After 5 comes 6. The counting sequence is 1, 2, 3, 4, 5, 6, 7...'
+            },
+            {
+              question: 'How many fingers do you have on both hands?',
+              options: ['5', '10', '15', '20'],
+              correctAnswer: 1,
+              explanation: 'You have 5 fingers on each hand, so 5 + 5 = 10 fingers total.'
+            }
+          ],
+          progression: {
+            next: 'math-2',
+            prerequisites: []
+          }
+        },
+        'math-2': {
+          title: 'Addition and Subtraction',
+          description: 'Master basic arithmetic operations',
+          objective: 'Students will learn to add and subtract single-digit numbers',
+          concepts: ['Addition', 'Subtraction', 'Basic equations'],
+          examples: [
+            { 
+              problem: 'What is 2 + 3?', 
+              visual: '2 + 3 = ?',
+              answer: '5',
+              explanation: 'Adding 2 and 3 gives us 5'
+            },
+            { 
+              problem: 'What is 7 - 4?', 
+              visual: '7 - 4 = ?',
+              answer: '3',
+              explanation: 'Subtracting 4 from 7 gives us 3'
+            }
+          ],
+          quiz: [
+            {
+              question: 'What is 3 + 4?',
+              options: ['5', '6', '7', '8'],
+              correctAnswer: 2,
+              explanation: '3 + 4 = 7. Count: 3, then add 4 more: 4, 5, 6, 7.'
+            },
+            {
+              question: 'What is 10 - 6?',
+              options: ['3', '4', '5', '6'],
+              correctAnswer: 1,
+              explanation: '10 - 6 = 4. Start with 10, take away 6, you have 4 left.'
+            }
+          ],
+          progression: {
+            next: 'math-3',
+            prerequisites: ['math-1']
+          }
+        },
+        'english-1': {
+          title: 'Parts of Speech',
+          description: 'Understanding nouns, verbs, and adjectives',
+          objective: 'Students will identify and use basic parts of speech',
+          concepts: ['Nouns', 'Verbs', 'Adjectives'],
+          examples: [
+            { 
+              problem: 'Identify the noun in: The cat sleeps', 
+              visual: 'The [cat] sleeps',
+              answer: 'cat',
+              explanation: 'Cat is the noun - it names an animal'
+            },
+            { 
+              problem: 'Identify the verb in: Birds fly high', 
+              visual: 'Birds [fly] high',
+              answer: 'fly',
+              explanation: 'Fly is the verb - it shows the action'
+            },
+            { 
+              problem: 'Identify the adjective in: The blue sky', 
+              visual: 'The [blue] sky',
+              answer: 'blue',
+              explanation: 'Blue is the adjective - it describes the sky'
+            }
+          ],
+          quiz: [
+            {
+              question: 'Which word is a noun?',
+              options: ['run', 'happy', 'dog', 'quickly'],
+              correctAnswer: 2,
+              explanation: 'Dog is a noun - it names an animal. The others are a verb, adjective, and adverb.'
+            },
+            {
+              question: 'Which word is a verb?',
+              options: ['table', 'jump', 'green', 'slowly'],
+              correctAnswer: 1,
+              explanation: 'Jump is a verb - it shows an action. The others are a noun, adjective, and adverb.'
+            }
+          ],
+          progression: {
+            next: 'english-2',
+            prerequisites: []
+          }
+        },
+        'spanish-1': {
+          title: 'Basic Greetings',
+          description: 'Learn common Spanish greetings and phrases',
+          objective: 'Students will use basic Spanish greetings in conversation',
+          concepts: ['Basic greetings', 'Common phrases', 'Pronunciation'],
+          examples: [
+            { 
+              problem: 'How do you say Hello?', 
+              visual: 'Hola (OH-lah)',
+              answer: 'Hola',
+              explanation: 'Hola is the most common greeting in Spanish'
+            },
+            { 
+              problem: 'How do you say Good morning?', 
+              visual: 'Buenos días (BWAY-nohs DEE-ahs)',
+              answer: 'Buenos días',
+              explanation: 'Use Buenos días until noon'
+            },
+            { 
+              problem: 'How do you say Goodbye?', 
+              visual: 'Adiós (ah-dee-OHS)',
+              answer: 'Adiós',
+              explanation: 'Adiós is the most common way to say goodbye'
+            }
+          ],
+          quiz: [
+            {
+              question: 'How do you say "Hello" in Spanish?',
+              options: ['Adiós', 'Hola', 'Gracias', 'Por favor'],
+              correctAnswer: 1,
+              explanation: 'Hola means Hello in Spanish. Adiós means goodbye.'
+            },
+            {
+              question: 'What does "Gracias" mean?',
+              options: ['Hello', 'Goodbye', 'Thank you', 'Please'],
+              correctAnswer: 2,
+              explanation: 'Gracias means Thank you in Spanish. It\'s a very important polite phrase!'
+            }
+          ],
+          progression: {
+            next: 'spanish-2',
+            prerequisites: []
+          }
+        }
+      };
+
+      const content = testContent[lessonId];
+      if (content) {
+        this.lessonsCache.set(lessonId, content);
+        return content;
+      }
+    }
+
     try {
       // Map lesson IDs to content files
       const contentFileMap: Record<string, string> = {

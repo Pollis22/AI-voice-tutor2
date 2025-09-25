@@ -85,6 +85,31 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getUser(id: string): Promise<User | undefined> {
+    // Return test user in test mode
+    const isTestMode = process.env.AUTH_TEST_MODE === 'true' || process.env.NODE_ENV === 'development';
+    if (isTestMode && id === 'test-user-id') {
+      return {
+        id: 'test-user-id',
+        username: 'test@example.com',
+        email: 'test@example.com',
+        password: 'hashed',
+        firstName: 'Test',
+        lastName: 'User',
+        subscriptionPlan: 'all',
+        subscriptionStatus: 'active',
+        stripeCustomerId: null,
+        stripeSubscriptionId: null,
+        weeklyVoiceMinutesUsed: 0,
+        weeklyResetDate: new Date(),
+        preferredLanguage: 'english',
+        voiceStyle: 'cheerful',
+        speechSpeed: '1.0',
+        volumeLevel: 75,
+        isAdmin: false,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      } as User;
+    }
     const [user] = await db.select().from(users).where(eq(users.id, id));
     return user || undefined;
   }
@@ -190,6 +215,46 @@ export class DatabaseStorage implements IStorage {
     const user = await this.getUser(userId);
     if (!user) throw new Error("User not found");
 
+    // Return test dashboard in test mode
+    const isTestMode = process.env.AUTH_TEST_MODE === 'true' || process.env.NODE_ENV === 'development';
+    if (isTestMode && userId === 'test-user-id') {
+      return {
+        user: {
+          name: 'Test User',
+          firstName: 'Test',
+          initials: 'TU',
+          plan: 'All Subjects Plan',
+        },
+        subjectProgress: [
+          {
+            subject: { id: 'math', name: 'Math', description: 'Master mathematical concepts', iconColor: 'blue', isActive: true },
+            completed: 3,
+            total: 10,
+            progressPercentage: 30,
+            avgQuizScore: 85,
+          },
+          {
+            subject: { id: 'english', name: 'English', description: 'Improve language skills', iconColor: 'green', isActive: true },
+            completed: 2,
+            total: 8,
+            progressPercentage: 25,
+            avgQuizScore: 90,
+          },
+          {
+            subject: { id: 'spanish', name: 'Spanish', description: 'Learn Spanish language', iconColor: 'yellow', isActive: true },
+            completed: 1,
+            total: 12,
+            progressPercentage: 8,
+            avgQuizScore: 75,
+          },
+        ],
+        usage: {
+          voiceMinutes: '0 / 90 min',
+          percentage: 0,
+        },
+      };
+    }
+
     // Get all subjects and progress
     const allSubjects = await db.select().from(subjects).where(eq(subjects.isActive, true));
     
@@ -247,6 +312,12 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getResumeSession(userId: string): Promise<any> {
+    // Return null for test mode (no resume session)
+    const isTestMode = process.env.AUTH_TEST_MODE === 'true' || process.env.NODE_ENV === 'development';
+    if (isTestMode && userId === 'test-user-id') {
+      return null;
+    }
+    
     const lastSession = await db
       .select({
         id: learningSessions.id,
@@ -293,10 +364,97 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getAllSubjects(): Promise<Subject[]> {
+    // Return test subjects in test mode
+    const isTestMode = process.env.AUTH_TEST_MODE === 'true' || process.env.NODE_ENV === 'development';
+    if (isTestMode) {
+      return [
+        {
+          id: 'math',
+          name: 'Math',
+          description: 'Master mathematical concepts from basic to advanced',
+          iconColor: 'blue',
+          isActive: true,
+          createdAt: new Date(),
+        } as Subject,
+        {
+          id: 'english',
+          name: 'English',
+          description: 'Improve grammar, writing, and comprehension skills',
+          iconColor: 'green',
+          isActive: true,
+          createdAt: new Date(),
+        } as Subject,
+        {
+          id: 'spanish',
+          name: 'Spanish',
+          description: 'Learn Spanish language from beginner to fluent',
+          iconColor: 'yellow',
+          isActive: true,
+          createdAt: new Date(),
+        } as Subject,
+      ];
+    }
     return await db.select().from(subjects).where(eq(subjects.isActive, true)).orderBy(asc(subjects.name));
   }
 
   async getSubjectLessons(subjectId: string): Promise<Lesson[]> {
+    // Return test lessons in test mode
+    const isTestMode = process.env.AUTH_TEST_MODE === 'true' || process.env.NODE_ENV === 'development';
+    if (isTestMode) {
+      const testLessons = {
+        math: [
+          {
+            id: 'math-1',
+            subjectId: 'math',
+            title: 'Introduction to Numbers',
+            description: 'Learn the basics of counting and number recognition',
+            content: { type: 'basic', difficulty: 'easy' },
+            orderIndex: 1,
+            estimatedMinutes: 15,
+            isActive: true,
+            createdAt: new Date(),
+          } as Lesson,
+          {
+            id: 'math-2',
+            subjectId: 'math',
+            title: 'Addition and Subtraction',
+            description: 'Master basic arithmetic operations',
+            content: { type: 'arithmetic', difficulty: 'easy' },
+            orderIndex: 2,
+            estimatedMinutes: 20,
+            isActive: true,
+            createdAt: new Date(),
+          } as Lesson,
+        ],
+        english: [
+          {
+            id: 'english-1',
+            subjectId: 'english',
+            title: 'Parts of Speech',
+            description: 'Understanding nouns, verbs, and adjectives',
+            content: { type: 'grammar', difficulty: 'medium' },
+            orderIndex: 1,
+            estimatedMinutes: 25,
+            isActive: true,
+            createdAt: new Date(),
+          } as Lesson,
+        ],
+        spanish: [
+          {
+            id: 'spanish-1',
+            subjectId: 'spanish',
+            title: 'Basic Greetings',
+            description: 'Learn common Spanish greetings and phrases',
+            content: { type: 'vocabulary', difficulty: 'easy' },
+            orderIndex: 1,
+            estimatedMinutes: 15,
+            isActive: true,
+            createdAt: new Date(),
+          } as Lesson,
+        ],
+      };
+      return testLessons[subjectId as keyof typeof testLessons] || [];
+    }
     return await db
       .select()
       .from(lessons)
@@ -305,11 +463,114 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getLessonById(lessonId: string): Promise<Lesson | undefined> {
+    // Return test lesson in test mode
+    const isTestMode = process.env.AUTH_TEST_MODE === 'true' || process.env.NODE_ENV === 'development';
+    if (isTestMode) {
+      const testLessons: Record<string, Lesson> = {
+        'math-1': {
+          id: 'math-1',
+          subjectId: 'math',
+          title: 'Introduction to Numbers',
+          description: 'Learn the basics of counting and number recognition',
+          content: { 
+            type: 'lesson',
+            concepts: ['Numbers 1-10', 'Counting', 'Number recognition'],
+            examples: ['Count from 1 to 10', 'Identify numbers in order'],
+            quiz: [
+              { question: 'What comes after 5?', answer: '6' },
+              { question: 'How many fingers do you have?', answer: '10' }
+            ]
+          },
+          orderIndex: 1,
+          estimatedMinutes: 15,
+          isActive: true,
+          createdAt: new Date(),
+        } as Lesson,
+        'math-2': {
+          id: 'math-2',
+          subjectId: 'math',
+          title: 'Addition and Subtraction',
+          description: 'Master basic arithmetic operations',
+          content: { 
+            type: 'lesson',
+            concepts: ['Addition', 'Subtraction', 'Basic equations'],
+            examples: ['2 + 3 = 5', '7 - 4 = 3'],
+            quiz: [
+              { question: 'What is 3 + 4?', answer: '7' },
+              { question: 'What is 10 - 6?', answer: '4' }
+            ]
+          },
+          orderIndex: 2,
+          estimatedMinutes: 20,
+          isActive: true,
+          createdAt: new Date(),
+        } as Lesson,
+        'english-1': {
+          id: 'english-1',
+          subjectId: 'english',
+          title: 'Parts of Speech',
+          description: 'Understanding nouns, verbs, and adjectives',
+          content: { 
+            type: 'lesson',
+            concepts: ['Nouns', 'Verbs', 'Adjectives'],
+            examples: ['Cat is a noun', 'Run is a verb', 'Blue is an adjective'],
+            quiz: [
+              { question: 'Is "dog" a noun or verb?', answer: 'noun' },
+              { question: 'Is "jump" a noun or verb?', answer: 'verb' }
+            ]
+          },
+          orderIndex: 1,
+          estimatedMinutes: 25,
+          isActive: true,
+          createdAt: new Date(),
+        } as Lesson,
+        'spanish-1': {
+          id: 'spanish-1',
+          subjectId: 'spanish',
+          title: 'Basic Greetings',
+          description: 'Learn common Spanish greetings and phrases',
+          content: { 
+            type: 'lesson',
+            concepts: ['Hola', 'Buenos días', 'Adiós'],
+            examples: ['Hola means Hello', 'Buenos días means Good morning'],
+            quiz: [
+              { question: 'How do you say Hello in Spanish?', answer: 'Hola' },
+              { question: 'What does "Adiós" mean?', answer: 'Goodbye' }
+            ]
+          },
+          orderIndex: 1,
+          estimatedMinutes: 15,
+          isActive: true,
+          createdAt: new Date(),
+        } as Lesson,
+      };
+      return testLessons[lessonId];
+    }
     const [lesson] = await db.select().from(lessons).where(eq(lessons.id, lessonId));
     return lesson || undefined;
   }
 
   async getUserProgress(userId: string, lessonId: string): Promise<UserProgress | undefined> {
+    // Return test progress in test mode
+    const isTestMode = process.env.AUTH_TEST_MODE === 'true' || process.env.NODE_ENV === 'development';
+    if (isTestMode && userId === 'test-user-id') {
+      // Return some progress for first math lesson, none for others
+      if (lessonId === 'math-1') {
+        return {
+          id: 'progress-1',
+          userId: 'test-user-id',
+          lessonId: 'math-1',
+          status: 'in_progress',
+          progressPercentage: 50,
+          quizScore: 85,
+          timeSpent: 10,
+          lastAccessed: new Date(),
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        } as UserProgress;
+      }
+      return undefined;
+    }
     const [progress] = await db
       .select()
       .from(userProgress)
