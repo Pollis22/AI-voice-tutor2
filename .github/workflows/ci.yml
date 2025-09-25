@@ -1,0 +1,79 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [ staging, main ]
+  push:
+    branches: [ staging, main ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    env:
+      NODE_ENV: test
+      VOICE_TEST_MODE: "1"
+      AUTH_TEST_MODE: "1"
+      TEST_USER_EMAIL: test@example.com
+      TEST_USER_PASSWORD: TestPass123!
+      # Use in-memory storage for testing instead of external DB
+      # DATABASE_URL: postgresql://test:test@localhost:5432/testdb
+      
+    # Using in-memory storage for CI testing - no need for external DB
+    # services:
+    #   postgres:
+    #     image: postgres:15
+    #     env:
+    #       POSTGRES_USER: test
+    #       POSTGRES_PASSWORD: test
+    #       POSTGRES_DB: testdb
+    #     options: >-
+    #       --health-cmd pg_isready
+    #       --health-interval 10s
+    #       --health-timeout 5s
+    #       --health-retries 5
+    #     ports:
+    #       - 5432:5432
+
+    steps:
+      - uses: actions/checkout@v4
+      
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          
+      - name: Install dependencies
+        run: npm ci
+        
+      - name: Run type checking
+        run: npm run check
+        
+      - name: Build application
+        run: npm run build
+        
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+        
+      - name: Start test server in background
+        run: NODE_ENV=test node dist/index.js &
+        env:
+          PORT: 3000
+          
+      - name: Wait for server to be ready
+        run: npx wait-on -t 60000 http-get://localhost:3000/api/health
+          
+      - name: Run E2E tests
+        run: npm run test:e2e
+        env:
+          BASE_URL: http://localhost:3000
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          AZURE_SPEECH_KEY: ${{ secrets.AZURE_SPEECH_KEY }}
+          AZURE_SPEECH_REGION: ${{ secrets.AZURE_SPEECH_REGION }}
+          
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 30

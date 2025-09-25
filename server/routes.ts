@@ -8,8 +8,8 @@ import { openaiService } from "./services/openai";
 import Stripe from "stripe";
 import { z } from "zod";
 
-// Temporary bypass for development - will use provided secrets once configured
-if (!process.env.STRIPE_SECRET_KEY && process.env.NODE_ENV !== 'development') {
+// Temporary bypass for development and testing - will use provided secrets once configured
+if (!process.env.STRIPE_SECRET_KEY && process.env.NODE_ENV === 'production') {
   throw new Error('Missing required Stripe secret: STRIPE_SECRET_KEY');
 }
 
@@ -22,6 +22,16 @@ const stripe = isStripeEnabled ? new Stripe(stripeKey, {
 }) : null;
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  // Health check endpoint
+  app.get("/api/health", (req, res) => {
+    res.status(200).json({ 
+      status: "ok", 
+      timestamp: new Date().toISOString(),
+      env: process.env.NODE_ENV,
+      voiceTestMode: process.env.VOICE_TEST_MODE === "1"
+    });
+  });
+
   // Setup authentication
   setupAuth(app);
 
