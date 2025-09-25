@@ -15,6 +15,7 @@ PORT = "5000"
 
 [agent]
 integrations = ["javascript_openai:1.0.0", "javascript_stripe:1.0.0", "javascript_log_in_with_replit:1.0.0", "javascript_auth_all_persistance:1.0.0", "javascript_database:1.0.0"]
+expertMode = true
 
 [workflows]
 runButton = "Project"
@@ -68,6 +69,10 @@ externalPort = 5173
 [[ports]]
 localPort = 42075
 externalPort = 4200
+
+[[ports]]
+localPort = 42571
+externalPort = 8081
 
 [[ports]]
 localPort = 43253
