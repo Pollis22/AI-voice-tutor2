@@ -684,11 +684,21 @@ Key guidelines:
 Remember: You're not just teaching facts, you're building confidence and curiosity!`;
   }
   
-  // Enhanced fallback with conversation context
+  // Enhanced fallback with conversation context and answer checking
   private getLessonSpecificFallback(subject: string, userInput?: string, sessionId?: string): { content: string; banner?: string } {
     // Check for recent fallbacks to avoid repetition
     const recentKey = `recent_fallbacks_${sessionId || 'default'}`;
     const recentFallbacks = this.recentFallbacks.get(recentKey) || [];
+    
+    // First, check if this is an answer to a previous question and provide correction
+    const answerCheckResponse = this.checkAndCorrectAnswer(userInput || '', subject, sessionId);
+    if (answerCheckResponse) {
+      this.trackRecentFallback(recentKey, answerCheckResponse);
+      return {
+        content: answerCheckResponse,
+        banner: "Teaching and correcting locally"
+      };
+    }
     
     // Contextual responses based on user input
     const contextualResponses = this.getContextualResponse(userInput || '', subject);
@@ -704,9 +714,21 @@ Remember: You're not just teaching facts, you're building confidence and curiosi
       }
     }
     
+    // Store any questions we're about to ask
+    const selectedResponse = this.getSelectedFallback(subject, recentFallbacks, sessionId);
+    this.storeQuestionFromResponse(selectedResponse, subject, sessionId);
+    
+    return {
+      content: selectedResponse,
+      banner: "I'm experiencing connection issues but can still help you learn!"
+    };
+  }
+  
+  private getSelectedFallback(subject: string, recentFallbacks: string[], sessionId?: string): string {
     // Enhanced educational fallbacks that actually teach lesson content
     const fallbacks: Record<string, string[]> = {
       math: [
+        "Let's work through this step by step. What number comes after 2?",
         "Let's learn addition! When we add 2 + 3, we count: 2, then 3 more makes 5. What's 4 + 2?",
         "Here's how subtraction works: If you have 8 cookies and eat 3, you have 5 left. What's 7 - 2?",
         "Multiplication is repeated addition! 3 × 2 means 3 + 3, which equals 6. Can you try 2 × 4?",
@@ -753,18 +775,131 @@ Remember: You're not just teaching facts, you're building confidence and curiosi
     
     let selectedResponse: string;
     if (availableResponses.length === 0) {
-      this.recentFallbacks.set(recentKey, []);
+      // Reset and select from all responses
       selectedResponse = responses[Math.floor(Math.random() * responses.length)];
     } else {
       selectedResponse = availableResponses[Math.floor(Math.random() * availableResponses.length)];
     }
     
-    this.trackRecentFallback(recentKey, selectedResponse);
+    return selectedResponse;
+  }
+  
+  // Check and correct user answers based on previous questions
+  private lastAskedQuestions = new Map<string, { question: string; expectedAnswer: string; subject: string }>();
+  
+  private checkAndCorrectAnswer(userInput: string, subject: string, sessionId?: string): string | null {
+    if (!sessionId || !userInput) return null;
     
-    return {
-      content: selectedResponse,
-      banner: "I'm experiencing connection issues but can still help you learn!"
-    };
+    const lastQuestion = this.lastAskedQuestions.get(sessionId);
+    if (!lastQuestion) {
+      // Store questions when we ask them
+      this.storeQuestionFromResponse(userInput, subject, sessionId);
+      return null;
+    }
+    
+    const userAnswer = userInput.toLowerCase().trim();
+    const expectedAnswer = lastQuestion.expectedAnswer.toLowerCase();
+    
+    // Check if the answer is correct
+    if (userAnswer === expectedAnswer || userAnswer.includes(expectedAnswer)) {
+      // Correct answer - provide positive feedback and next question
+      this.lastAskedQuestions.delete(sessionId); // Clear the question
+      
+      if (subject === 'math') {
+        return "Excellent! That's correct. Now let's try something a bit harder. What's 3 + 2?";
+      } else if (subject === 'english') {
+        return "Perfect! You got it right. Now, can you think of a word that rhymes with 'cat'?";
+      } else if (subject === 'spanish') {
+        return "¡Muy bien! That's right! Now, how do you say 'thank you' in Spanish?";
+      }
+      return "Great job! That's the right answer. Let's move on to the next question.";
+    } else {
+      // Incorrect answer - provide correction and teaching
+      this.lastAskedQuestions.delete(sessionId); // Clear the question
+      
+      // Provide specific corrections based on the question
+      if (lastQuestion.question.includes("comes after 2")) {
+        return `Not quite - 3 comes after 2. When we count: 1, 2, 3, 4. See how 3 is right after 2? Now you try: What comes after 5?`;
+      } else if (lastQuestion.question.includes("2 + 3") || lastQuestion.question.includes("2 plus 3")) {
+        return `Let me help! 2 + 3 = 5. We start with 2 and add 3 more: 2, 3, 4, 5. So the answer is 5. Can you try 3 + 1?`;
+      } else if (lastQuestion.question.includes("count from 1 to 5")) {
+        return `Good try! Let's count together: 1, 2, 3, 4, 5. Notice how we say each number in order. Can you try counting from 1 to 3?`;
+      } else if (lastQuestion.question.includes("4 + 2")) {
+        return `Let's work it out: 4 + 2 = 6. Start at 4 and count 2 more: 5, 6. The answer is 6! Now try: What's 2 + 2?`;
+      }
+      
+      // Generic correction for other questions
+      return `That's not quite right. The answer is ${lastQuestion.expectedAnswer}. Let me explain why, then we'll try another one. Ready?`;
+    }
+  }
+  
+  private storeQuestionFromResponse(response: string, subject: string, sessionId?: string) {
+    if (!sessionId) return;
+    
+    // Parse common question patterns and store expected answers
+    const responseL = response.toLowerCase();
+    
+    if (responseL.includes("what comes after 2") || responseL.includes("what number comes after 2")) {
+      this.lastAskedQuestions.set(sessionId, { 
+        question: "what comes after 2", 
+        expectedAnswer: "3",
+        subject 
+      });
+    } else if (responseL.includes("what's 2 + 3") || responseL.includes("2 plus 3")) {
+      this.lastAskedQuestions.set(sessionId, { 
+        question: "2 + 3", 
+        expectedAnswer: "5",
+        subject 
+      });
+    } else if (responseL.includes("what's 4 + 2") || responseL.includes("4 plus 2")) {
+      this.lastAskedQuestions.set(sessionId, { 
+        question: "4 + 2", 
+        expectedAnswer: "6",
+        subject 
+      });
+    } else if (responseL.includes("count from 1 to 5")) {
+      this.lastAskedQuestions.set(sessionId, { 
+        question: "count from 1 to 5", 
+        expectedAnswer: "1 2 3 4 5",
+        subject 
+      });
+    } else if (responseL.includes("what's 3 + 2") || responseL.includes("3 plus 2")) {
+      this.lastAskedQuestions.set(sessionId, { 
+        question: "3 + 2", 
+        expectedAnswer: "5",
+        subject 
+      });
+    } else if (responseL.includes("what's 5 + 3") || responseL.includes("5 plus 3")) {
+      this.lastAskedQuestions.set(sessionId, { 
+        question: "5 + 3", 
+        expectedAnswer: "8",
+        subject 
+      });
+    } else if (responseL.includes("what's 7 - 2") || responseL.includes("7 minus 2")) {
+      this.lastAskedQuestions.set(sessionId, { 
+        question: "7 - 2", 
+        expectedAnswer: "5",
+        subject 
+      });
+    } else if (responseL.includes("count to 10")) {
+      this.lastAskedQuestions.set(sessionId, { 
+        question: "count to 10", 
+        expectedAnswer: "1 2 3 4 5 6 7 8 9 10",
+        subject 
+      });
+    } else if (responseL.includes("what rhymes with 'sun'")) {
+      this.lastAskedQuestions.set(sessionId, { 
+        question: "rhymes with sun", 
+        expectedAnswer: "run",
+        subject 
+      });
+    } else if (responseL.includes("how do you say 'hello' in spanish")) {
+      this.lastAskedQuestions.set(sessionId, { 
+        question: "hello in spanish", 
+        expectedAnswer: "hola",
+        subject 
+      });
+    }
   }
   
   // Track recent fallbacks to avoid repetition
