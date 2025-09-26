@@ -17,6 +17,11 @@ export interface ConversationContext {
   currentPlan?: TutorPlan;
   sessionId: string;
   userId: string;
+  // Session-scoped question state for answer acknowledgment
+  currentQuestion?: string;
+  expectedAnswer?: string;
+  questionType?: 'short' | 'mcq' | 'math' | 'open';
+  options?: string[];
 }
 
 // Dialog state transitions

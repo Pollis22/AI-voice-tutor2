@@ -81,6 +81,56 @@ export class ConversationManager {
     }
   }
 
+  // Set question state for answer acknowledgment
+  setQuestionState(
+    sessionId: string, 
+    question: string, 
+    expectedAnswer: string, 
+    questionType: 'short' | 'mcq' | 'math' | 'open' = 'short',
+    options?: string[]
+  ): void {
+    const context = this.contexts.get(sessionId);
+    if (!context) return;
+
+    context.currentQuestion = question;
+    context.expectedAnswer = expectedAnswer;
+    context.questionType = questionType;
+    context.options = options;
+    
+    console.log(`[Conversation] Set question state for session ${sessionId}: ${questionType} question`);
+  }
+
+  // Clear question state after acknowledgment
+  clearQuestionState(sessionId: string): void {
+    const context = this.contexts.get(sessionId);
+    if (!context) return;
+
+    context.currentQuestion = undefined;
+    context.expectedAnswer = undefined;
+    context.questionType = undefined;
+    context.options = undefined;
+    
+    console.log(`[Conversation] Cleared question state for session ${sessionId}`);
+  }
+
+  // Get current question state
+  getQuestionState(sessionId: string): {
+    currentQuestion?: string;
+    expectedAnswer?: string;
+    questionType?: 'short' | 'mcq' | 'math' | 'open';
+    options?: string[];
+  } | null {
+    const context = this.contexts.get(sessionId);
+    if (!context) return null;
+
+    return {
+      currentQuestion: context.currentQuestion,
+      expectedAnswer: context.expectedAnswer,
+      questionType: context.questionType,
+      options: context.options
+    };
+  }
+
   // Get appropriate system prompt based on state and topic
   getSystemPrompt(sessionId: string): string {
     const context = this.contexts.get(sessionId);
