@@ -58,13 +58,10 @@ export class TestSpeechService {
     
     utterance.onend = () => {
       console.log('[TTS] Speech ended');
-      this.hideVisualFeedback();
     };
     
     utterance.onerror = (event) => {
       console.error('[TTS] Speech error:', event);
-      // Keep visual feedback visible longer on error
-      setTimeout(() => this.hideVisualFeedback(), 10000);
     };
 
     this.currentUtterance = utterance;
@@ -74,40 +71,6 @@ export class TestSpeechService {
       utterance.onend = () => resolve();
       utterance.onerror = (event) => reject(event.error);
     });
-  }
-  
-  private showVisualFeedback(text: string) {
-    // Remove any existing feedback
-    const existing = document.getElementById('tts-visual-feedback');
-    if (existing) {
-      existing.remove();
-    }
-    
-    // Create visual feedback element
-    const message = document.createElement('div');
-    message.id = 'tts-visual-feedback';
-    message.innerHTML = `
-      <div style="display: flex; align-items: center; gap: 10px;">
-        <div style="width: 8px; height: 8px; background: white; border-radius: 50%; animation: pulse 1s infinite;"></div>
-        <strong>AI Tutor:</strong> ${text}
-      </div>
-      <style>
-        @keyframes pulse {
-          0%, 100% { opacity: 1; }
-          50% { opacity: 0.3; }
-        }
-      </style>
-    `;
-    message.style.cssText = 'position: fixed; bottom: 20px; right: 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 15px 20px; border-radius: 12px; max-width: 500px; z-index: 9999; box-shadow: 0 4px 15px rgba(0,0,0,0.2); animation: slideIn 0.3s ease-out; font-size: 14px; line-height: 1.5;';
-    document.body.appendChild(message);
-  }
-  
-  private hideVisualFeedback() {
-    const element = document.getElementById('tts-visual-feedback');
-    if (element) {
-      element.style.animation = 'slideOut 0.3s ease-out';
-      setTimeout(() => element.remove(), 300);
-    }
   }
 
   stop() {

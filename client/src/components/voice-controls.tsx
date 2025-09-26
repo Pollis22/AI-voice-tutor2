@@ -22,12 +22,12 @@ export function VoiceControls({ lessonId }: VoiceControlsProps) {
     conversationHistory
   } = useVoice();
 
-  const scrollAreaRef = useRef<HTMLDivElement>(null);
+  const lastMessageRef = useRef<HTMLDivElement>(null);
 
   // Auto-scroll to bottom when new messages are added
   useEffect(() => {
-    if (scrollAreaRef.current) {
-      scrollAreaRef.current.scrollTop = scrollAreaRef.current.scrollHeight;
+    if (lastMessageRef.current) {
+      lastMessageRef.current.scrollIntoView({ behavior: 'smooth', block: 'end' });
     }
   }, [conversationHistory]);
 
@@ -105,10 +105,7 @@ export function VoiceControls({ lessonId }: VoiceControlsProps) {
                 
                 <Card className="border-2">
                   <CardContent className="p-0">
-                    <ScrollArea 
-                      className="h-80 w-full p-4" 
-                      ref={scrollAreaRef}
-                    >
+                    <ScrollArea className="h-80 w-full p-4">
                       <div className="space-y-3">
                         {conversationHistory.length === 0 ? (
                           <div className="text-center text-muted-foreground text-sm py-8">
@@ -118,6 +115,7 @@ export function VoiceControls({ lessonId }: VoiceControlsProps) {
                           conversationHistory.map((message, index) => (
                             <div
                               key={index}
+                              ref={index === conversationHistory.length - 1 ? lastMessageRef : null}
                               className={`flex ${message.type === 'user' ? 'justify-end' : 'justify-start'}`}
                               data-testid={`message-${message.type}-${index}`}
                             >
