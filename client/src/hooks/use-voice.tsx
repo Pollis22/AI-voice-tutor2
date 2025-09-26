@@ -2,7 +2,7 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { getTestSpeechService, testLessonMessages } from "@/utils/test-speech";
+import { getTestSpeechService, getTestSpeechRecognition, testLessonMessages } from "@/utils/test-speech";
 
 interface VoiceConfig {
   testMode?: boolean;
@@ -99,64 +99,119 @@ export function useVoice() {
   const setupRealtimeConnection = useCallback(async (token: string, config: VoiceConfig) => {
     try {
       if (config.testMode) {
-        // Test mode with browser text-to-speech (no microphone needed)
+        // Test mode with browser text-to-speech and speech recognition
         const speechService = getTestSpeechService();
+        const speechRecognition = getTestSpeechRecognition();
+        
         setIsConnected(true);
         
-        // Create a conversational sequence
-        let conversationStep = 0;
-        const conversationFlow = [
-          testLessonMessages.greeting,
-          testLessonMessages.lesson,
-          testLessonMessages.question,
-          testLessonMessages.encouragement,
-          testLessonMessages.feedback,
-          testLessonMessages.ending
-        ];
-        
-        const runConversation = () => {
-          if (conversationStep < conversationFlow.length) {
-            const message = conversationFlow[conversationStep];
-            console.log(`Speaking step ${conversationStep + 1}:`, message);
-            speechService.speak(message);
-            conversationStep++;
-            
-            // Continue conversation every 12 seconds - track timeout for cleanup
-            if (conversationStep < conversationFlow.length) {
-              const timeoutId = setTimeout(runConversation, 12000);
-              conversationTimeoutsRef.current.push(timeoutId);
-            }
+        // Simulated AI responses based on user input patterns
+        const generateAIResponse = (userInput: string): string => {
+          const input = userInput.toLowerCase();
+          
+          // Check for various input patterns and respond accordingly
+          if (input.includes('hello') || input.includes('hi')) {
+            return "Hello! It's great to have you here. What subject would you like to learn about today?";
+          } else if (input.includes('noun')) {
+            return "Excellent! A noun is a word that names a person, place, thing, or idea. For example, 'teacher', 'school', 'book', and 'happiness' are all nouns. Can you give me an example of a noun from your surroundings?";
+          } else if (input.includes('verb')) {
+            return "Great question! A verb is a word that shows action or state of being. Words like 'run', 'think', 'is', and 'become' are verbs. What's your favorite action verb?";
+          } else if (input.includes('adjective')) {
+            return "Good thinking! An adjective is a word that describes a noun. Words like 'blue', 'happy', 'tall', and 'interesting' are adjectives. Can you describe something around you using an adjective?";
+          } else if (input.includes('yes') || input.includes('ready')) {
+            return "Wonderful! Let's begin. Today we'll explore parts of speech. Do you know what a noun is?";
+          } else if (input.includes('no') || input.includes('not sure')) {
+            return "That's perfectly fine! Learning is all about discovering new things. Let me explain. Can you tell me what you'd like to know?";
+          } else if (input.includes('book') || input.includes('computer') || input.includes('desk') || input.includes('phone')) {
+            return `Yes! '${userInput}' is a great example of a noun! It's a thing we can see and touch. Can you think of a noun that names a feeling or idea?`;
+          } else if (input.includes('love') || input.includes('happiness') || input.includes('anger') || input.includes('joy')) {
+            return `Perfect! '${userInput}' is an abstract noun - it names a feeling or concept we can't physically touch. You're really getting this!`;
+          } else if (input.includes('thank') || input.includes('bye') || input.includes('goodbye')) {
+            return "You're very welcome! Great job today. Remember to practice identifying parts of speech in your daily reading. See you next time!";
+          } else {
+            // Default responses for continuing conversation
+            const responses = [
+              "That's an interesting point! Can you tell me more about your thinking?",
+              "Good observation! Let's explore that further. What else do you notice?",
+              "I like how you're thinking about this. Can you give me an example?",
+              "You're on the right track! What makes you say that?",
+              "Excellent effort! Let's think about this together. What do you know so far?"
+            ];
+            return responses[Math.floor(Math.random() * responses.length)];
           }
         };
         
-        // Start conversation after a brief delay - track timeout for cleanup
-        const initialTimeoutId = setTimeout(() => {
-          console.log('Starting conversational AI tutor...');
-          runConversation();
-        }, 1000);
+        // Handle user speech input
+        const handleUserSpeech = async (transcript: string) => {
+          console.log('[Voice] User said:', transcript);
+          
+          // Generate AI response
+          const aiResponse = generateAIResponse(transcript);
+          console.log('[Voice] AI response:', aiResponse);
+          
+          // Speak the AI response after a short delay
+          setTimeout(() => {
+            speechService.speak(aiResponse);
+          }, 500);
+        };
+        
+        // Set up speech recognition callbacks
+        if (speechRecognition) {
+          speechRecognition.onResult(handleUserSpeech);
+          speechRecognition.onError((error) => {
+            console.error('[Voice] Speech recognition error:', error);
+            // Fallback to text if speech recognition fails
+            speechService.speak("I'm having trouble hearing you. Let me continue with the lesson. A noun is a word that names a person, place, thing, or idea.");
+          });
+        }
+        
+        // Start conversation with greeting
+        const startConversation = () => {
+          console.log('Starting interactive AI tutor...');
+          speechService.speak(testLessonMessages.greeting);
+          
+          // Start listening for user speech after greeting
+          if (speechRecognition) {
+            setTimeout(() => {
+              console.log('[Voice] Starting speech recognition...');
+              speechRecognition.start();
+            }, 2000);
+          }
+        };
+        
+        // Start conversation after a brief delay
+        const initialTimeoutId = setTimeout(startConversation, 1000);
         conversationTimeoutsRef.current.push(initialTimeoutId);
         
         return {
           connect: () => {
-            console.log('Test mode: Conversational AI tutor started');
+            console.log('Test mode: Interactive AI tutor with speech recognition started');
             return Promise.resolve();
           },
           disconnect: () => {
             speechService.stop();
+            if (speechRecognition) {
+              speechRecognition.stop();
+            }
             setIsConnected(false);
             return Promise.resolve();
           },
           send: (data: any) => {
             console.log('User interaction:', data);
-            // Continue with next conversation step on interaction
-            setTimeout(runConversation, 2000);
+            // Could handle text input here if needed
           },
           mute: () => {
             speechService.pause();
+            if (speechRecognition) {
+              speechRecognition.stop();
+            }
             setIsMuted(true);
           },
           unmute: () => {
             speechService.resume();
+            if (speechRecognition) {
+              speechRecognition.start();
+            }
             setIsMuted(false);
           },
         };
@@ -198,9 +253,24 @@ export function useVoice() {
       
       console.log('Voice config received:', config);
       
-      // For test mode, skip all microphone/audio setup - just start conversational tutor
+      // For test mode, setup with browser's speech APIs
       if (config.testMode) {
-        console.log('Test mode detected: Starting conversational tutor without microphone');
+        console.log('Test mode detected: Starting interactive tutor with speech recognition');
+        
+        // Request microphone permission for speech recognition
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          // We got permission, but we'll use the Web Speech API instead of the stream
+          stream.getTracks().forEach(track => track.stop());
+          console.log('[Voice] Microphone permission granted');
+        } catch (error) {
+          console.warn('[Voice] Microphone permission denied, continuing with TTS only:', error);
+          toast({
+            title: "Microphone Access",
+            description: "Please allow microphone access for voice interaction. The tutor will continue with text-to-speech only.",
+            variant: "default",
+          });
+        }
         
         // Setup realtime connection for test mode
         const connection = await setupRealtimeConnection(token, config);
@@ -211,8 +281,8 @@ export function useVoice() {
         setSessionStartTime(Date.now()); // Track when session started
         
         toast({
-          title: "Voice tutor started",
-          description: "Your AI tutor is speaking! Listen for verbal instructions.",
+          title: "Voice session started",
+          description: "Speak clearly into your microphone to interact with your AI tutor!",
         });
         return;
       }
