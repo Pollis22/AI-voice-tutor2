@@ -66,6 +66,9 @@ export interface IStorage {
 
 export class DatabaseStorage implements IStorage {
   sessionStore: session.Store;
+  private testSessions: LearningSession[] = [];
+  private testQuizAttempts: QuizAttempt[] = [];
+  private testUserProgress: Map<string, UserProgress> = new Map();
 
   constructor() {
     // Use MemoryStore for development testing when database is not available
@@ -579,6 +582,32 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateUserProgress(userId: string, lessonId: string, progressData: Partial<UserProgress>): Promise<UserProgress> {
+    // Test mode implementation
+    const isTestMode = process.env.AUTH_TEST_MODE === 'true' || process.env.NODE_ENV === 'development';
+    if (isTestMode) {
+      const key = `${userId}-${lessonId}`;
+      const existing = this.testUserProgress.get(key);
+      const progress: UserProgress = existing ? {
+        ...existing,
+        ...progressData,
+        updatedAt: new Date()
+      } : {
+        id: `progress-${Date.now()}`,
+        userId,
+        lessonId,
+        status: progressData.status || 'not_started',
+        progressPercentage: progressData.progressPercentage || 0,
+        lastAccessed: new Date(),
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        completedAt: null,
+        quizScore: progressData.quizScore || null,
+        timeSpent: progressData.timeSpent || null
+      };
+      this.testUserProgress.set(key, progress);
+      return progress;
+    }
+    
     const existing = await this.getUserProgress(userId, lessonId);
     
     if (existing) {
@@ -602,6 +631,25 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createLearningSession(sessionData: InsertLearningSession): Promise<LearningSession> {
+    // Test mode implementation
+    const isTestMode = process.env.AUTH_TEST_MODE === 'true' || process.env.NODE_ENV === 'development';
+    if (isTestMode) {
+      const session: LearningSession = {
+        id: `session-${Date.now()}`,
+        userId: sessionData.userId,
+        lessonId: sessionData.lessonId || null,
+        sessionType: sessionData.sessionType as "voice" | "text" | "quiz",
+        startedAt: new Date(),
+        endedAt: null,
+        duration: null,
+        transcript: null,
+        feedback: null,
+        voiceMinutesUsed: 0
+      };
+      this.testSessions.push(session);
+      return session;
+    }
+    
     const [session] = await db
       .insert(learningSessions)
       .values(sessionData as any)
@@ -610,6 +658,17 @@ export class DatabaseStorage implements IStorage {
   }
 
   async endLearningSession(sessionId: string, userId: string, updates: Partial<LearningSession>): Promise<LearningSession> {
+    // Test mode implementation
+    const isTestMode = process.env.AUTH_TEST_MODE === 'true' || process.env.NODE_ENV === 'development';
+    if (isTestMode) {
+      const session = this.testSessions.find(s => s.id === sessionId && s.userId === userId);
+      if (!session) {
+        throw new Error('Session not found');
+      }
+      Object.assign(session, updates);
+      return session;
+    }
+    
     const [session] = await db
       .update(learningSessions)
       .set(updates)
@@ -619,6 +678,14 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getUserSessions(userId: string): Promise<LearningSession[]> {
+    // Test mode implementation
+    const isTestMode = process.env.AUTH_TEST_MODE === 'true' || process.env.NODE_ENV === 'development';
+    if (isTestMode) {
+      return this.testSessions
+        .filter(s => s.userId === userId)
+        .sort((a, b) => (b.startedAt?.getTime() || 0) - (a.startedAt?.getTime() || 0));
+    }
+    
     return await db
       .select()
       .from(learningSessions)
@@ -627,6 +694,25 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createQuizAttempt(attemptData: InsertQuizAttempt): Promise<QuizAttempt> {
+    // Test mode implementation
+    const isTestMode = process.env.AUTH_TEST_MODE === 'true' || process.env.NODE_ENV === 'development';
+    if (isTestMode) {
+      const attempt: QuizAttempt = {
+        id: `quiz-${Date.now()}`,
+        userId: attemptData.userId,
+        lessonId: attemptData.lessonId,
+        sessionId: attemptData.sessionId || null,
+        answers: attemptData.answers as any,
+        score: attemptData.score,
+        totalQuestions: attemptData.totalQuestions,
+        timeSpent: attemptData.timeSpent || null,
+        createdAt: new Date(),
+        completedAt: new Date()
+      };
+      this.testQuizAttempts.push(attempt);
+      return attempt;
+    }
+    
     const [attempt] = await db
       .insert(quizAttempts)
       .values(attemptData)
@@ -635,6 +721,14 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getUserQuizAttempts(userId: string, lessonId?: string): Promise<QuizAttempt[]> {
+    // Test mode implementation
+    const isTestMode = process.env.AUTH_TEST_MODE === 'true' || process.env.NODE_ENV === 'development';
+    if (isTestMode) {
+      return this.testQuizAttempts
+        .filter(a => a.userId === userId && (!lessonId || a.lessonId === lessonId))
+        .sort((a, b) => (b.completedAt?.getTime() || 0) - (a.completedAt?.getTime() || 0));
+    }
+    
     const whereClause = lessonId
       ? and(eq(quizAttempts.userId, userId), eq(quizAttempts.lessonId, lessonId))
       : eq(quizAttempts.userId, userId);
