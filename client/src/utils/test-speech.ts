@@ -31,9 +31,6 @@ export class TestSpeechService {
     console.log('[TTS] Speaking:', text);
     console.log('[TTS] Available voices:', this.voices.length);
     console.log('[TTS] Speech synthesis available:', 'speechSynthesis' in window);
-    
-    // Visual feedback - show what the AI tutor is saying
-    this.showVisualFeedback(text);
 
     const utterance = new SpeechSynthesisUtterance(text);
     
