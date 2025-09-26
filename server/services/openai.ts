@@ -126,8 +126,8 @@ Response rules:
           tools: [TUTOR_PLAN_SCHEMA],
           tool_choice: { type: "function", function: { name: "tutor_plan" } }
         });
-      }, undefined, (context) => {
-        console.log(`[OpenAI] Retry ${context.attempt}/${context.totalAttempts} after:`, context.lastError?.message);
+      }, undefined, (retryContext) => {
+        console.log(`[OpenAI] Retry ${retryContext.attempt}/${retryContext.totalAttempts} after:`, retryContext.lastError?.message);
       });
       
       // Handle retry result
