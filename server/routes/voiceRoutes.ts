@@ -23,9 +23,10 @@ router.post('/generate-response', async (req, res) => {
     userQueueManager.cancelInFlightForSession(effectiveSessionId);
     
     // TURN GATING: Use proper input gating service that implements OR logic (text OR sufficient ASR)
-    const gatingResult = inputGatingService.validate(message || '', {
-      duration: speechDuration,
-      confidence: speechConfidence
+    const gatingResult = inputGatingService.validate({
+      message: message || '',
+      speechDuration: speechDuration,
+      speechConfidence: speechConfidence
     });
     
     if (gatingResult.shouldGate) {

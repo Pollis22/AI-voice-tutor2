@@ -93,6 +93,33 @@ class OpenAIService {
         const normalizedMessage = gatingResult.normalizedInput || message.trim();
         const subject = context.lessonContext?.subject || lessonId.split('-')[0] || 'general';
 
+        // Step 1.5: Check if this is an answer to a previous question and provide immediate correction
+        const answerCheckResult = this.checkAndCorrectAnswer(normalizedMessage, subject, sessionId);
+        if (answerCheckResult) {
+          // Store the new question if we're asking one in our correction
+          this.storeQuestionFromResponse(answerCheckResult, subject, sessionId);
+          
+          return {
+            content: answerCheckResult,
+            plan: {
+              state: 'teaching',
+              goal: 'Provide corrective feedback and continue teaching',
+              plan: ['Correct the answer', 'Explain the concept', 'Ask follow-up question'],
+              next_prompt: answerCheckResult
+            },
+            topic: subject,
+            repairMove: true,
+            usedFallback: false,
+            queueDepth: userQueue.getQueueDepth(),
+            retryCount: 0,
+            tokensUsed: 0,
+            model: 'local-correction',
+            banner: 'Provided immediate answer correction',
+            usedCache: false,
+            breakerOpen: false
+          };
+        }
+
         // Step 2: Semantic Cache Check
         const cacheResult = semanticCache.get(lessonId, normalizedMessage);
         if (cacheResult) {
