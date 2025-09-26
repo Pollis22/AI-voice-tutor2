@@ -141,17 +141,50 @@ export function useVoice() {
           }
         };
         
+        // Track if AI is currently speaking to prevent feedback loop
+        let isAISpeaking = false;
+        
         // Handle user speech input
         const handleUserSpeech = async (transcript: string) => {
+          // Ignore input if AI is speaking (prevents feedback loop)
+          if (isAISpeaking) {
+            console.log('[Voice] Ignoring input while AI is speaking');
+            return;
+          }
+          
           console.log('[Voice] User said:', transcript);
           
           // Generate AI response
           const aiResponse = generateAIResponse(transcript);
           console.log('[Voice] AI response:', aiResponse);
           
+          // Stop listening before AI speaks to prevent feedback
+          if (speechRecognition) {
+            console.log('[Voice] Pausing speech recognition while AI speaks');
+            speechRecognition.stop();
+          }
+          
+          // Mark AI as speaking
+          isAISpeaking = true;
+          
           // Speak the AI response after a short delay
-          setTimeout(() => {
-            speechService.speak(aiResponse);
+          setTimeout(async () => {
+            try {
+              await speechService.speak(aiResponse);
+              console.log('[Voice] AI finished speaking');
+            } catch (error) {
+              console.error('[Voice] Speech error:', error);
+            } finally {
+              // AI done speaking, resume listening after a delay
+              isAISpeaking = false;
+              
+              if (speechRecognition) {
+                setTimeout(() => {
+                  console.log('[Voice] Resuming speech recognition');
+                  speechRecognition.start();
+                }, 1000); // Wait 1 second before listening again
+              }
+            }
           }, 500);
         };
         
@@ -166,16 +199,27 @@ export function useVoice() {
         }
         
         // Start conversation with greeting
-        const startConversation = () => {
+        const startConversation = async () => {
           console.log('Starting interactive AI tutor...');
-          speechService.speak(testLessonMessages.greeting);
           
-          // Start listening for user speech after greeting
+          // Mark AI as speaking during greeting
+          isAISpeaking = true;
+          
+          try {
+            await speechService.speak(testLessonMessages.greeting);
+            console.log('[Voice] Greeting finished');
+          } catch (error) {
+            console.error('[Voice] Greeting error:', error);
+          } finally {
+            isAISpeaking = false;
+          }
+          
+          // Start listening for user speech after greeting completes
           if (speechRecognition) {
             setTimeout(() => {
               console.log('[Voice] Starting speech recognition...');
               speechRecognition.start();
-            }, 2000);
+            }, 1500); // Wait 1.5 seconds after greeting before listening
           }
         };
         
