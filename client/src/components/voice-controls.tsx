@@ -123,7 +123,7 @@ export function VoiceControls({ lessonId }: VoiceControlsProps) {
                                 className={`max-w-[80%] rounded-lg px-3 py-2 text-sm ${
                                   message.type === 'user'
                                     ? 'bg-primary text-primary-foreground ml-4'
-                                    : 'bg-muted text-muted-foreground mr-4'
+                                    : 'bg-muted text-foreground mr-4'
                                 }`}
                               >
                                 <div className="flex items-center space-x-2 mb-1">
