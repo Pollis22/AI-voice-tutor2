@@ -27,17 +27,23 @@ The application follows a modern full-stack architecture using:
 - Password hashing using Node.js scrypt for security
 
 ### Voice Technology Integration
-The platform implements a hybrid voice architecture:
+The platform implements an advanced voice architecture with enhanced quality and expressiveness:
 - **Live Conversations**: OpenAI Realtime API with WebRTC for real-time speech-to-speech interactions
-- **Narration**: Azure Neural Text-to-Speech with emotional style support (cheerful, empathetic, professional)
-- **Voice Router**: Server-side endpoints for token generation and audio narration
+- **Advanced TTS**: Azure Neural Text-to-Speech (en-US-EmmaMultilingualNeural) with SSML prosody controls
+- **Energy Level System**: Learner-configurable voice styles (calm, neutral, upbeat) with dynamic prosody mapping
+- **Enhanced AI Responses**: GPT-4o integration with optimized conversation parameters and Socratic teaching prompts
+- **Streaming & Barge-in**: Real-time audio streaming with sentence splitting and interruption capability
+- **Voice Router**: Comprehensive server-side endpoints for token generation, audio narration, and energy controls
 - **Test Mode**: Mock voice functionality for testing environments via `VOICE_TEST_MODE=1`
 
 ### AI & Learning Engine
-- **Primary AI Model**: OpenAI GPT-4o-mini for tutoring responses and content generation
-- **Teaching Method**: Socratic approach - guides students to discover answers rather than providing direct solutions
+- **Primary AI Model**: OpenAI GPT-4o with fallback to GPT-4o-mini for enhanced conversation quality
+- **Enhanced System Prompt**: TutorMind system with comprehensive Socratic teaching methodology
+- **Conversation Parameters**: Optimized temperature (0.75), top_p (0.92), and presence_penalty (0.3) for natural responses
+- **Teaching Method**: Advanced Socratic approach with phrase variety, encouragement banks, and adaptive questioning
 - **Content Management**: JSON-based lesson structure stored in `/content/lessons/` directory
-- **Adaptive Learning**: AI adapts responses based on user progress and learning patterns
+- **Adaptive Learning**: AI adapts responses based on user progress, energy levels, and learning patterns
+- **Voice-Optimized Responses**: Conversation flow designed for natural speech patterns and turn-taking
 
 ### Database Schema & Data Management
 Core entities include:
