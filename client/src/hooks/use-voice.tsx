@@ -14,6 +14,12 @@ interface VoiceConfig {
   instructions?: string;
 }
 
+interface ConversationMessage {
+  type: 'user' | 'tutor';
+  content: string;
+  timestamp: number;
+}
+
 export function useVoice() {
   const [isActive, setIsActive] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
@@ -21,6 +27,7 @@ export function useVoice() {
   const [error, setError] = useState<string | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [sessionStartTime, setSessionStartTime] = useState<number | null>(null);
+  const [conversationHistory, setConversationHistory] = useState<ConversationMessage[]>([]);
   
   const { toast } = useToast();
   const realtimeConnectionRef = useRef<any>(null);
@@ -154,6 +161,13 @@ export function useVoice() {
           
           console.log('[Voice] User said:', transcript);
           
+          // Add user message to conversation history
+          setConversationHistory(prev => [...prev, {
+            type: 'user',
+            content: transcript,
+            timestamp: Date.now()
+          }]);
+          
           // Generate AI response
           const aiResponse = generateAIResponse(transcript);
           console.log('[Voice] AI response:', aiResponse);
@@ -170,6 +184,13 @@ export function useVoice() {
           // Speak the AI response after a short delay
           setTimeout(async () => {
             try {
+              // Add AI message to conversation history before speaking
+              setConversationHistory(prev => [...prev, {
+                type: 'tutor',
+                content: aiResponse,
+                timestamp: Date.now()
+              }]);
+              
               await speechService.speak(aiResponse);
               console.log('[Voice] AI finished speaking');
             } catch (error) {
@@ -204,6 +225,13 @@ export function useVoice() {
           
           // Mark AI as speaking during greeting
           isAISpeaking = true;
+          
+          // Add greeting to conversation history
+          setConversationHistory(prev => [...prev, {
+            type: 'tutor',
+            content: testLessonMessages.greeting,
+            timestamp: Date.now()
+          }]);
           
           try {
             await speechService.speak(testLessonMessages.greeting);
@@ -433,6 +461,7 @@ export function useVoice() {
     setError(null);
     setSessionId(null);
     setSessionStartTime(null);
+    setConversationHistory([]); // Clear conversation history on session end
   }, []);
 
   const muteAudio = useCallback(() => {
@@ -458,6 +487,7 @@ export function useVoice() {
     isMuted,
     error,
     sessionId,
+    conversationHistory,
     startVoiceSession,
     endVoiceSession: endVoiceSession,
     muteAudio,
