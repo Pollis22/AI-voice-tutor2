@@ -22,8 +22,9 @@ export class InputGatingService {
     reasonCounts: {}
   };
 
-  private readonly minDurationMs = parseInt(process.env.ASR_MIN_MS || '350');
-  private readonly minConfidence = parseFloat(process.env.ASR_MIN_CONFIDENCE || '0.5');
+  // Reduced thresholds for better responsiveness
+  private readonly minDurationMs = parseInt(process.env.ASR_MIN_MS || '150');  // Reduced from 350ms
+  private readonly minConfidence = parseFloat(process.env.ASR_MIN_CONFIDENCE || '0.3');  // Reduced from 0.5
 
   validate(input: {
     message?: string;
