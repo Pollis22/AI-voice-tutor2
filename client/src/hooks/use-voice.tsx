@@ -2,7 +2,7 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { getTestSpeechService, getTestSpeechRecognition, testLessonMessages } from "@/utils/test-speech";
+import { getTestSpeechService, getTestSpeechRecognition } from "@/utils/test-speech";
 
 interface VoiceConfig {
   testMode?: boolean;
@@ -110,6 +110,9 @@ export function useVoice() {
         const speechService = getTestSpeechService();
         const speechRecognition = getTestSpeechRecognition();
         
+        // Track recently used responses to prevent repetition
+        const recentResponses: string[] = [];
+        
         setIsConnected(true);
         
         // Simulated AI responses based on user input patterns
@@ -128,15 +131,57 @@ export function useVoice() {
             return data.content || "I'm here to help you learn! What would you like to explore?";
           } catch (error) {
             console.error('[Voice] Error generating AI response:', error);
-            // Fallback to simple responses if API fails
-            const fallbackResponses = [
-              "That's an interesting point! Can you tell me more about your thinking?",
-              "Good observation! Let's explore that further. What else do you notice?",
-              "I like how you're thinking about this. Can you give me an example?",
-              "You're on the right track! What makes you say that?",
-              "Excellent effort! Let's think about this together. What do you know so far?"
-            ];
-            return fallbackResponses[Math.floor(Math.random() * fallbackResponses.length)];
+            // Fallback to lesson-specific responses if API fails
+            const subject = lessonId ? lessonId.split('-')[0] : 'general';
+            const fallbackMap: Record<string, string[]> = {
+              math: [
+                "Let's explore numbers together! Can you count to 5 with me?",
+                "Great thinking about math! What number comes after 3?",
+                "Good question! How many toys do you have in front of you?",
+                "Let's practice! If you have 2 apples and get 1 more, how many do you have?"
+              ],
+              english: [
+                "Let's explore words! Can you tell me a word that names a person?",
+                "Good thinking about language! What's your favorite action word?",
+                "Let's build sentences! Can you make a sentence with 'dog'?",
+                "Great effort! Can you think of a describing word for 'apple'?"
+              ],
+              spanish: [
+                "¡Hola! Can you say 'hello' in Spanish?",
+                "Good try! How do you say 'thank you' in Spanish?",
+                "Let's practice! Can you count 'uno, dos, tres' with me?",
+                "¡Muy bien! What color is 'rojo' in English?"
+              ],
+              general: [
+                "Let's learn together! What would you like to explore?",
+                "Good question! Can you tell me more about what you're thinking?",
+                "I'm here to help! What part interests you most?",
+                "Great effort! Let's work through this step by step."
+              ]
+            };
+            
+            const responses = fallbackMap[subject] || fallbackMap.general;
+            
+            // Pick a response not recently used
+            let selectedResponse = '';
+            for (const response of responses) {
+              if (!recentResponses.includes(response)) {
+                selectedResponse = response;
+                break;
+              }
+            }
+            
+            // If all were used, clear history and pick randomly
+            if (!selectedResponse) {
+              recentResponses.length = 0;
+              selectedResponse = responses[Math.floor(Math.random() * responses.length)];
+            }
+            
+            // Track this response (keep only last 3)
+            recentResponses.push(selectedResponse);
+            if (recentResponses.length > 3) recentResponses.shift();
+            
+            return selectedResponse;
           }
         };
         
@@ -225,15 +270,26 @@ export function useVoice() {
           // Mark AI as speaking during greeting
           isAISpeaking = true;
           
+          // Generate lesson-specific greeting
+          const subject = lessonId ? lessonId.split('-')[0] : 'general';
+          const greetings: Record<string, string> = {
+            math: "Hello! Welcome to your math lesson. Today we'll explore numbers and counting. Are you ready to begin?",
+            english: "Hello! Welcome to your English lesson. Today we'll explore words and sentences. Are you ready to begin?",
+            spanish: "¡Hola! Welcome to your Spanish lesson. Today we'll learn Spanish words. Are you ready to begin?",
+            general: "Hello! Welcome to your AI Tutor. I'm here to help you learn. What would you like to explore today?"
+          };
+          
+          const greeting = greetings[subject] || greetings.general;
+          
           // Add greeting to conversation history
           setConversationHistory(prev => [...prev, {
             type: 'tutor',
-            content: testLessonMessages.greeting,
+            content: greeting,
             timestamp: Date.now()
           }]);
           
           try {
-            await speechService.speak(testLessonMessages.greeting);
+            await speechService.speak(greeting);
             console.log('[Voice] Greeting finished');
           } catch (error) {
             console.error('[Voice] Greeting error:', error);

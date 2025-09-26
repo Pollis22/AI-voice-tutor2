@@ -2,6 +2,24 @@ import { LessonContext } from '../types/lessonContext';
 import * as fs from 'fs';
 import * as path from 'path';
 
+// Mapping of short lesson IDs to actual file names
+const LESSON_ID_MAPPING: Record<string, string> = {
+  // Math lessons
+  'math-1': 'math-numbers-counting',
+  'math-2': 'math-basic-addition',
+  'math-3': 'math-basic-subtraction',
+  
+  // English lessons
+  'english-1': 'english-parts-of-speech',
+  'english-2': 'english-sentence-structure',
+  'english-3': 'english-reading-comprehension',
+  
+  // Spanish lessons
+  'spanish-1': 'spanish-greetings',
+  'spanish-2': 'spanish-numbers',
+  'spanish-3': 'spanish-colors',
+};
+
 export class LessonService {
   private lessonCache: Map<string, LessonContext> = new Map();
   
@@ -13,24 +31,26 @@ export class LessonService {
     }
     
     try {
+      // Map lesson ID to actual filename
+      const filename = LESSON_ID_MAPPING[lessonId] || lessonId;
+      
       // Try to load from content/lessons directory
-      const lessonPath = path.join(process.cwd(), 'content', 'lessons', `${lessonId}.json`);
+      const lessonPath = path.join(process.cwd(), 'content', 'lessons', `${filename}.json`);
       
       if (!fs.existsSync(lessonPath)) {
         console.warn(`[LessonService] Lesson file not found: ${lessonPath}`);
         
-        // Search for lesson in subdirectories
-        const subjects = ['math', 'english', 'spanish'];
-        for (const subject of subjects) {
-          const subjectPath = path.join(process.cwd(), 'content', 'lessons', subject, `${lessonId}.json`);
-          if (fs.existsSync(subjectPath)) {
-            const content = JSON.parse(fs.readFileSync(subjectPath, 'utf-8'));
-            const context = this.mapToLessonContext(lessonId, subject, content);
-            this.lessonCache.set(lessonId, context);
-            return context;
-          }
+        // Try direct lessonId if mapping didn't work
+        const fallbackPath = path.join(process.cwd(), 'content', 'lessons', `${lessonId}.json`);
+        if (fs.existsSync(fallbackPath)) {
+          const content = JSON.parse(fs.readFileSync(fallbackPath, 'utf-8'));
+          const subject = this.extractSubject(lessonId);
+          const context = this.mapToLessonContext(lessonId, subject, content);
+          this.lessonCache.set(lessonId, context);
+          return context;
         }
         
+        console.warn(`[LessonService] Could not find lesson file for ID: ${lessonId}`);
         return null;
       }
       
