@@ -23,15 +23,15 @@ export const VOICE_CONFIG: VoiceConfig = {
   defaultStyle: {
     style: 'cheerful',
     styleDegree: 1.2,
-    rate: '1.0',
-    pitch: '+0Hz'
+    rate: '1.06', // +6% rate as specified
+    pitch: '+1st' // +1 semitone pitch
   },
   energyMapping: {
     calm: {
-      style: 'calm',
+      style: 'gentle',
       styleDegree: 0.8,
-      rate: '0.9',
-      pitch: '-5Hz'
+      rate: '0.94', // Slower for calm
+      pitch: '+0Hz'
     },
     neutral: {
       style: 'friendly',
@@ -42,8 +42,8 @@ export const VOICE_CONFIG: VoiceConfig = {
     upbeat: {
       style: 'cheerful',
       styleDegree: 1.2,
-      rate: '1.1',
-      pitch: '+5Hz'
+      rate: '1.06', // +6% rate
+      pitch: '+1st' // +1 semitone
     }
   }
 };
@@ -72,5 +72,5 @@ export const ENERGY_LEVELS: EnergyLevel[] = ['calm', 'neutral', 'upbeat'];
 // Get current energy level from environment or default
 export function getCurrentEnergyLevel(): EnergyLevel {
   const envLevel = process.env.ENERGY_LEVEL as EnergyLevel;
-  return ENERGY_LEVELS.includes(envLevel) ? envLevel : 'neutral';
+  return ENERGY_LEVELS.includes(envLevel) ? envLevel : 'upbeat';
 }

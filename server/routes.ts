@@ -6,6 +6,7 @@ import { voiceService } from "./services/voice";
 import { lessonsService } from "./services/lessons";
 import { openaiService } from "./services/openai";
 import voiceRoutes from "./routes/voiceRoutes";
+import conversationRoutes from "./routes/conversationRoutes";
 import Stripe from "stripe";
 import { z } from "zod";
 
@@ -38,6 +39,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Enhanced voice API routes
   app.use("/api/voice", voiceRoutes);
+  
+  // Conversation management routes
+  app.use("/api/conversation", conversationRoutes);
 
   // Legacy voice API routes (for compatibility)
   
@@ -48,8 +52,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     try {
-      const token = await voiceService.generateRealtimeToken();
-      const config = await voiceService.getVoiceConfig();
+      const token = await voiceService.generateLiveToken(req.user?.id || 'anonymous');
+      const config = await voiceService.getRealtimeConfig();
       
       res.json({ 
         token, 

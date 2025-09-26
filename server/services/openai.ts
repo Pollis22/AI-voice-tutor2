@@ -1,5 +1,8 @@
 import OpenAI from "openai";
 import { LLM_CONFIG, TUTOR_SYSTEM_PROMPT, ensureEndsWithQuestion, splitIntoSentences, getRandomPhrase, ACKNOWLEDGMENT_PHRASES, TRANSITION_PHRASES } from '../llm/systemPrompt';
+import { conversationManager } from './conversationManager';
+import { topicRouter } from './topicRouter';
+import { TutorPlan, TUTOR_PLAN_SCHEMA } from '../types/conversationState';
 
 const openai = new OpenAI({ 
   apiKey: process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY_ENV_VAR || "default_key" 
@@ -9,14 +12,45 @@ interface TutorContext {
   userId: string;
   lessonId?: string;
   sessionId?: string;
+  energyLevel?: string;
+}
+
+interface EnhancedTutorResponse {
+  content: string;
+  plan?: TutorPlan;
+  topic?: string;
+  repairMove?: boolean;
 }
 
 class OpenAIService {
   async generateTutorResponse(message: string, context: TutorContext): Promise<string> {
+    return this.generateEnhancedTutorResponse(message, context).then(r => r.content);
+  }
+
+  // Enhanced conversation response with planning and state management
+  async generateEnhancedTutorResponse(message: string, context: TutorContext): Promise<EnhancedTutorResponse> {
     try {
+      // Initialize or get conversation context
+      if (context.sessionId) {
+        let convContext = conversationManager.getContext(context.sessionId);
+        if (!convContext) {
+          convContext = conversationManager.initializeContext(context.sessionId, context.userId);
+        }
+      }
+
+      // Classify topic
+      const topicClassification = topicRouter.classifyTopic(message);
+      if (context.sessionId && topicClassification.confidence > 0.6) {
+        conversationManager.setTopic(context.sessionId, topicClassification.topic);
+      }
+
+      // Get dynamic system prompt based on conversation state
+      const systemPrompt = context.sessionId 
+        ? conversationManager.getSystemPrompt(context.sessionId)
+        : TUTOR_SYSTEM_PROMPT;
+
       // Add variety with random acknowledgment
       const acknowledgment = getRandomPhrase(ACKNOWLEDGMENT_PHRASES);
-      const systemPrompt = `${TUTOR_SYSTEM_PROMPT}\n\nContext: ${context.lessonId ? `Lesson: ${context.lessonId}` : 'General conversation'}`;
 
       let model = LLM_CONFIG.model;
       try {
@@ -30,19 +64,54 @@ class OpenAIService {
           max_tokens: LLM_CONFIG.maxTokens,
           top_p: LLM_CONFIG.topP,
           presence_penalty: LLM_CONFIG.presencePenalty,
+          tools: [TUTOR_PLAN_SCHEMA],
+          tool_choice: { type: "function", function: { name: "tutor_plan" } }
         });
 
         let content = response.choices[0].message.content || "I'm sorry, I didn't understand that. Could you please rephrase your question?";
-        
-        // Add variety with random acknowledgment and transition phrases
-        if (Math.random() < 0.6) { // 60% chance to add acknowledgment
-          content = `${acknowledgment} ${content}`;
+        let plan: TutorPlan | undefined;
+
+        // Parse the required tutor_plan tool call
+        const toolCalls = response.choices[0].message.tool_calls;
+        if (toolCalls && toolCalls.length > 0) {
+          const planCall = toolCalls.find(call => call.type === 'function' && call.function.name === 'tutor_plan');
+          if (planCall && planCall.type === 'function') {
+            try {
+              const planData = JSON.parse(planCall.function.arguments);
+              plan = {
+                goal: planData.goal,
+                plan: planData.plan,
+                next_prompt: planData.next_prompt,
+                followup_options: planData.followup_options
+              };
+              
+              // Use only the next_prompt as the spoken content (enforced)
+              content = plan.next_prompt;
+              
+              // Store plan in conversation manager
+              if (context.sessionId) {
+                conversationManager.addPlan(context.sessionId, plan);
+              }
+              
+              console.log(`[OpenAI] Generated plan: ${plan.goal}`);
+            } catch (error) {
+              console.error('[OpenAI] Failed to parse tutor plan:', error);
+              // Fallback content if plan parsing fails
+              content = "Let me think about the best way to help you learn. What would you like to explore?";
+            }
+          }
+        } else {
+          // This shouldn't happen with forced tool choice, but provide fallback
+          console.warn('[OpenAI] No tutor_plan tool call received despite forced choice');
+          content = "I'm here to help you learn! What would you like to work on?";
         }
         
-        // Ensure response ends with question for engagement
-        content = ensureEndsWithQuestion(content);
-        
-        return content;
+        return {
+          content,
+          plan,
+          topic: topicClassification.topic,
+          repairMove: topicClassification.confidence < 0.4
+        };
       } catch (error: any) {
         // Fallback to gpt-4o-mini if gpt-4o fails
         if (error?.error?.code === 'model_not_found' || error?.status === 404) {
@@ -57,17 +126,43 @@ class OpenAIService {
             max_tokens: LLM_CONFIG.maxTokens,
             top_p: LLM_CONFIG.topP,
             presence_penalty: LLM_CONFIG.presencePenalty,
+            tools: [TUTOR_PLAN_SCHEMA],
+            tool_choice: { type: "function", function: { name: "tutor_plan" } }
           });
 
-          let content = response.choices[0].message.content || "I'm sorry, I didn't understand that. Could you please rephrase your question?";
+          // Parse tutor_plan tool call from fallback response too
+          let content = "I'm here to help you learn! What would you like to work on?";
+          let plan: TutorPlan | undefined;
           
-          // Add variety with random acknowledgment in fallback too
-          if (Math.random() < 0.6) { // 60% chance to add acknowledgment
-            content = `${acknowledgment} ${content}`;
+          const toolCalls = response.choices[0].message.tool_calls;
+          if (toolCalls && toolCalls.length > 0) {
+            const planCall = toolCalls.find(call => call.type === 'function' && call.function.name === 'tutor_plan');
+            if (planCall && planCall.type === 'function') {
+              try {
+                const planData = JSON.parse(planCall.function.arguments);
+                plan = {
+                  goal: planData.goal,
+                  plan: planData.plan,
+                  next_prompt: planData.next_prompt,
+                  followup_options: planData.followup_options
+                };
+                content = plan.next_prompt;
+                
+                if (context.sessionId) {
+                  conversationManager.addPlan(context.sessionId, plan);
+                }
+              } catch (error) {
+                console.error('[OpenAI Fallback] Failed to parse tutor plan:', error);
+              }
+            }
           }
           
-          content = ensureEndsWithQuestion(content);
-          return content;
+          return {
+            content,
+            plan,
+            topic: topicClassification.topic,
+            repairMove: topicClassification.confidence < 0.4
+          };
         }
         throw error;
       }

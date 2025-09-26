@@ -3,6 +3,8 @@ import { voiceService } from '../services/voice';
 import { openaiService } from '../services/openai';
 import { getAzureTTSService } from '../services/azureTTS';
 import { getCurrentEnergyLevel, type EnergyLevel } from '../llm/voiceConfig';
+import { telemetryManager } from '../services/sessionTelemetry';
+import { conversationManager } from '../services/conversationManager';
 
 const router = express.Router();
 
@@ -11,15 +13,22 @@ router.post('/generate-response', async (req, res) => {
   try {
     const { message, lessonId, sessionId, energyLevel } = req.body;
   
-  // Get energy level from request body, session, or default to environment/neutral
-  const effectiveEnergyLevel = energyLevel || (req.session as any).energyLevel || process.env.VOICE_ENERGY_LEVEL || 'neutral';
+  // Get energy level from request body, session, or default to environment/upbeat
+  const effectiveEnergyLevel = energyLevel || (req.session as any).energyLevel || process.env.ENERGY_LEVEL || 'upbeat';
     const userId = req.user?.id || 'anonymous';
 
     console.log(`[Voice API] Generating response for user: ${userId}, lesson: ${lessonId}`);
 
-    // Generate enhanced AI response
-    const context = { userId, lessonId, sessionId };
-    const { content, chunks } = await openaiService.generateVoiceResponse(message, context);
+    // Generate enhanced AI response with conversation management
+    const enhancedResponse = await openaiService.generateEnhancedTutorResponse(message, {
+      userId,
+      lessonId: lessonId || 'general',
+      sessionId,
+      energyLevel: effectiveEnergyLevel
+    });
+
+    // Also get chunks for voice synthesis
+    const chunks = await openaiService.generateVoiceResponse(message, { userId, lessonId, sessionId }).then(r => r.chunks);
 
     // Check if we should use Azure TTS or test mode
     const testMode = process.env.VOICE_TEST_MODE !== '0';
@@ -42,12 +51,36 @@ router.post('/generate-response', async (req, res) => {
           audioChunks.push(base64Audio);
         }
 
+        // Add telemetry entries for transcript
+        if (sessionId) {
+          // Initialize session telemetry if needed
+          if (!telemetryManager.getSessionSummary(sessionId)) {
+            telemetryManager.startSession(sessionId, userId);
+          }
+
+          telemetryManager.addTranscriptEntry(sessionId, {
+            speaker: 'user',
+            content: message,
+            topic: enhancedResponse.topic,
+            energyLevel: effectiveEnergyLevel
+          });
+
+          telemetryManager.addTranscriptEntry(sessionId, {
+            speaker: 'tutor',
+            content: enhancedResponse.content,
+            topic: enhancedResponse.topic,
+            energyLevel: effectiveEnergyLevel
+          });
+        }
+
         return res.json({
-          content,
+          content: enhancedResponse.content,
           chunks,
           audioChunks,
           testMode: false,
-          energyLevel: energyLevel || getCurrentEnergyLevel()
+          energyLevel: effectiveEnergyLevel,
+          topic: enhancedResponse.topic,
+          repairMove: enhancedResponse.repairMove
         });
       } catch (error) {
         console.error('[Voice API] Azure TTS failed, falling back to test mode:', error);
@@ -56,11 +89,35 @@ router.post('/generate-response', async (req, res) => {
     }
 
     // Test mode response (browser TTS will handle synthesis)
+    // Add telemetry entries for transcript
+    if (sessionId) {
+      // Initialize session telemetry if needed
+      if (!telemetryManager.getSessionSummary(sessionId)) {
+        telemetryManager.startSession(sessionId, userId);
+      }
+
+      telemetryManager.addTranscriptEntry(sessionId, {
+        speaker: 'user',
+        content: message,
+        topic: enhancedResponse.topic,
+        energyLevel: effectiveEnergyLevel
+      });
+
+      telemetryManager.addTranscriptEntry(sessionId, {
+        speaker: 'tutor',
+        content: enhancedResponse.content,
+        topic: enhancedResponse.topic,
+        energyLevel: effectiveEnergyLevel
+      });
+    }
+
     res.json({
-      content,
+      content: enhancedResponse.content,
       chunks,
       testMode: true,
-      energyLevel: energyLevel || getCurrentEnergyLevel()
+      energyLevel: effectiveEnergyLevel,
+      topic: enhancedResponse.topic,
+      repairMove: enhancedResponse.repairMove
     });
 
   } catch (error) {
