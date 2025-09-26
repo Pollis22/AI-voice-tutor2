@@ -8,6 +8,7 @@ interface CacheEntry {
   timestamp: number;
   hits: number;
   embedding?: number[]; // Store for similarity checks
+  citations?: string[]; // Citations for cached responses
 }
 
 interface CacheMetrics {
@@ -42,12 +43,15 @@ export class SemanticCache {
       }
     });
 
-    console.log(`[SemanticCache] Initialized with max size: ${maxSize}, TTL: ${ttlMinutes}min`);
+    console.log(`[SemanticCache] Initialized with max size: ${maxSize}, TTL: ${ttlMinutes}min (${process.env.CACHE_TTL_MIN || '1440'} from env)`);
   }
 
-  // Generate cache key from lesson and normalized question
+  // Generate cache key with exact format: ${lessonId}:${hash(embedding(normalizedQuestion))}
   private generateCacheKey(lessonId: string, question: string): string {
     const normalizedQuestion = this.normalizeQuestion(question);
+    
+    // For now, use hash of normalized question as proxy for embedding hash
+    // In production, this would use actual embeddings from OpenAI or similar
     const questionHash = crypto.createHash('sha256')
       .update(normalizedQuestion)
       .digest('hex')
@@ -90,7 +94,7 @@ export class SemanticCache {
       entry.hits++;
       this.metrics.hits++;
       this.updateMetrics();
-      console.log(`[SemanticCache] Cache HIT for lesson: ${lessonId}, question: "${question.substring(0, 50)}..."`);
+      console.log(`[SemanticCache] Cache HIT for lesson: ${lessonId}, question: "${question.substring(0, 50)}...", citations: ${entry.citations?.length || 0}`);
       return entry;
     }
 
@@ -125,21 +129,44 @@ export class SemanticCache {
     return null;
   }
 
-  // Store response in cache
+  // Store response in cache with citations
   set(lessonId: string, question: string, content: string, subject: string): void {
     const key = this.generateCacheKey(lessonId, question);
+    const citations = this.generateCitations(lessonId, subject);
+    
     const entry: CacheEntry = {
       content,
       lessonId,
       subject,
       timestamp: Date.now(),
-      hits: 0
+      hits: 0,
+      citations
     };
 
     this.cache.set(key, entry);
     this.updateMetrics();
     
-    console.log(`[SemanticCache] Cached response for lesson: ${lessonId}, question: "${question.substring(0, 50)}..."`);
+    console.log(`[SemanticCache] Cached response for lesson: ${lessonId}, question: "${question.substring(0, 50)}...", citations: ${citations.length}`);
+  }
+
+  // Generate citations for cached responses
+  private generateCitations(lessonId: string, subject?: string): string[] {
+    const citations: string[] = [];
+    
+    // Add lesson-specific citation
+    if (lessonId && lessonId !== 'general') {
+      citations.push(`Lesson: ${lessonId}`);
+    }
+    
+    // Add subject-area citation
+    if (subject && subject !== 'general') {
+      citations.push(`Subject: ${subject.charAt(0).toUpperCase() + subject.slice(1)}`);
+    }
+    
+    // Add cache timestamp for reproducibility
+    citations.push(`Cached: ${new Date().toISOString()}`);
+    
+    return citations;
   }
 
   // Update metrics

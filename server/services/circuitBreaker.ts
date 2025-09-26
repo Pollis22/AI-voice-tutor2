@@ -46,18 +46,37 @@ export class CircuitBreaker extends EventEmitter {
 
     this.metrics.requests++;
 
-    try {
-      const result = await Promise.race([
-        operation(),
-        this.timeoutPromise()
-      ]);
+    // Retry pattern: 250ms, 500ms, 1s, 2s (max 4 attempts)
+    const retryDelays = [250, 500, 1000, 2000];
+    let lastError: Error | null = null;
 
-      this.onSuccess();
-      return result;
-    } catch (error) {
-      this.onFailure(error);
-      throw error;
+    for (let attempt = 0; attempt < retryDelays.length + 1; attempt++) {
+      try {
+        const result = await Promise.race([
+          operation(),
+          this.timeoutPromise()
+        ]);
+
+        this.onSuccess();
+        return result;
+      } catch (error) {
+        lastError = error as Error;
+        
+        // If this is the last attempt, don't retry
+        if (attempt === retryDelays.length) {
+          break;
+        }
+
+        console.log(`[CircuitBreaker] Attempt ${attempt + 1} failed, retrying in ${retryDelays[attempt]}ms:`, lastError.message);
+        
+        // Wait before retrying
+        await new Promise(resolve => setTimeout(resolve, retryDelays[attempt]));
+      }
     }
+
+    // All retries failed
+    this.onFailure(lastError);
+    throw lastError || new Error('All retry attempts failed');
   }
 
   private timeoutPromise(): Promise<never> {

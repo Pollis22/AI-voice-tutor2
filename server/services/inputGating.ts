@@ -33,24 +33,59 @@ export class InputGatingService {
   }): InputValidationResult {
     this.metrics.totalInputs++;
 
-    const { message, speechDuration = 0, speechConfidence = 0 } = input;
+    const { message, speechDuration, speechConfidence } = input;
     
     // Clean and normalize the message
     const trimmedMessage = message?.trim() || '';
     const normalizedInput = this.normalizeInput(trimmedMessage);
 
-    // Gate 1: Empty or too short text content
-    if (!normalizedInput || normalizedInput.length < 2) {
-      this.recordGating('empty_or_too_short');
+    // EXACT REQUIREMENT: Only enqueue if text.trim() > 0 OR (asr.durationMs >= ASR_MIN_MS AND asr.confidence >= ASR_MIN_CONFIDENCE)
+    const hasValidText = normalizedInput && normalizedInput.length > 0;
+    const hasValidSpeech = speechDuration !== undefined && speechConfidence !== undefined &&
+                           speechDuration >= this.minDurationMs && speechConfidence >= this.minConfidence;
+
+    // Must satisfy at least one condition
+    if (!hasValidText && !hasValidSpeech) {
+      // Determine the specific reason for gating
+      if (!normalizedInput || normalizedInput.length === 0) {
+        this.recordGating('empty_text');
+        return {
+          isValid: false,
+          shouldGate: true,
+          reason: 'Empty text input'
+        };
+      }
+      
+      if (speechDuration !== undefined && speechDuration < this.minDurationMs) {
+        this.recordGating('speech_too_short');
+        return {
+          isValid: false,
+          shouldGate: true,
+          reason: `Speech too short: ${speechDuration}ms < ${this.minDurationMs}ms`
+        };
+      }
+      
+      if (speechConfidence !== undefined && speechConfidence < this.minConfidence) {
+        this.recordGating('low_confidence');
+        return {
+          isValid: false,
+          shouldGate: true,
+          reason: `Low confidence: ${speechConfidence} < ${this.minConfidence}`
+        };
+      }
+      
+      this.recordGating('insufficient_input');
       return {
         isValid: false,
         shouldGate: true,
-        reason: 'Empty or too short input'
+        reason: 'Insufficient input quality'
       };
     }
 
-    // Gate 2: Gibberish or non-meaningful input
-    if (this.isGibberish(normalizedInput)) {
+    // Additional quality checks for valid inputs
+    
+    // Gate: Gibberish or non-meaningful input (only if we have text)
+    if (hasValidText && this.isGibberish(normalizedInput)) {
       this.recordGating('gibberish');
       return {
         isValid: false,
@@ -59,28 +94,8 @@ export class InputGatingService {
       };
     }
 
-    // Gate 3: Speech duration too short (if provided)
-    if (speechDuration > 0 && speechDuration < this.minDurationMs) {
-      this.recordGating('speech_too_short');
-      return {
-        isValid: false,
-        shouldGate: true,
-        reason: `Speech duration ${speechDuration}ms below minimum ${this.minDurationMs}ms`
-      };
-    }
-
-    // Gate 4: Speech confidence too low (if provided)
-    if (speechConfidence > 0 && speechConfidence < this.minConfidence) {
-      this.recordGating('low_confidence');
-      return {
-        isValid: false,
-        shouldGate: true,
-        reason: `Speech confidence ${speechConfidence.toFixed(2)} below minimum ${this.minConfidence}`
-      };
-    }
-
-    // Gate 5: Repetitive input (check against recent inputs)
-    if (this.isRepetitive(normalizedInput)) {
+    // Gate: Repetitive input (check against recent inputs)
+    if (hasValidText && this.isRepetitive(normalizedInput)) {
       this.recordGating('repetitive');
       return {
         isValid: false,
@@ -96,7 +111,7 @@ export class InputGatingService {
     return {
       isValid: true,
       shouldGate: false,
-      normalizedInput
+      normalizedInput: normalizedInput || `[speech:${speechDuration}ms,conf:${speechConfidence}]`
     };
   }
 

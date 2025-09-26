@@ -5,6 +5,7 @@ import { getAzureTTSService } from '../services/azureTTS';
 import { getCurrentEnergyLevel, type EnergyLevel } from '../llm/voiceConfig';
 import { telemetryManager } from '../services/sessionTelemetry';
 import { conversationManager } from '../services/conversationManager';
+import { userQueueManager } from '../services/userQueueManager';
 
 const router = express.Router();
 
@@ -13,13 +14,20 @@ router.post('/generate-response', async (req, res) => {
   try {
     const { message, lessonId, sessionId, energyLevel, speechDuration, speechConfidence } = req.body;
     
+    // Get user and session identifiers
+    const userId = req.user?.id || 'anonymous';
+    const effectiveSessionId = sessionId || `${userId}-default`;
+    
+    // Cancel any in-flight operations for this session (barge-in)
+    userQueueManager.cancelInFlightForSession(effectiveSessionId);
+    
     // TURN GATING: Validate actual user input
     const trimmedMessage = message?.trim() || '';
     const duration = speechDuration || 0;
     const confidence = speechConfidence || 0;
     
     // Check if input meets thresholds
-    const minDuration = parseInt(process.env.ASR_MIN_MS || "300");
+    const minDuration = parseInt(process.env.ASR_MIN_MS || "350");
     const minConfidence = parseFloat(process.env.ASR_MIN_CONFIDENCE || "0.5");
     
     if (!trimmedMessage || trimmedMessage.length < 2) {
@@ -39,20 +47,33 @@ router.post('/generate-response', async (req, res) => {
     
     // Get energy level from request body, session, or default to environment/upbeat
     const effectiveEnergyLevel = energyLevel || (req.session as any).energyLevel || process.env.ENERGY_LEVEL || 'upbeat';
-    const userId = req.user?.id || 'anonymous';
 
-    console.log(`[Voice API] Processing valid input for user: ${userId}, lesson: ${lessonId}, message length: ${trimmedMessage.length}`);
+    console.log(`[Voice API] Processing valid input for user: ${userId}, session: ${effectiveSessionId}, lesson: ${lessonId}, message length: ${trimmedMessage.length}`);
 
-    // Generate enhanced AI response with conversation management
-    const enhancedResponse = await openaiService.generateEnhancedTutorResponse(message, {
-      userId,
-      lessonId: lessonId || 'general',
-      sessionId,
-      energyLevel: effectiveEnergyLevel
-    });
+    // Get user queue for this session (ensures concurrency = 1 per user)
+    const userQueue = userQueueManager.getQueue(effectiveSessionId);
+    
+    // Enqueue the voice response generation to ensure exactly ONE LLM call per user turn
+    const result = await userQueue.enqueue(async () => {
+      // Generate enhanced AI response with conversation management
+      const enhancedResponse = await openaiService.generateEnhancedTutorResponse(message, {
+        userId,
+        lessonId: lessonId || 'general',
+        sessionId: effectiveSessionId,
+        energyLevel: effectiveEnergyLevel
+      }, {
+        duration: speechDuration,
+        confidence: speechConfidence
+      });
 
-    // Also get chunks for voice synthesis
-    const chunks = await openaiService.generateVoiceResponse(message, { userId, lessonId, sessionId }).then(r => r.chunks);
+      return enhancedResponse;
+    }, true); // Enable barge-in capability
+
+    // Use the enhanced response from the queue
+    const enhancedResponse = result;
+
+    // Generate voice chunks for synthesis from the enhanced response
+    const chunks = [enhancedResponse.content]; // Use the single response content for voice
 
     // Check if we should use Azure TTS or test mode
     const testMode = process.env.VOICE_TEST_MODE !== '0';
@@ -76,20 +97,20 @@ router.post('/generate-response', async (req, res) => {
         }
 
         // Add telemetry entries for transcript
-        if (sessionId) {
+        if (effectiveSessionId) {
           // Initialize session telemetry if needed
-          if (!telemetryManager.getSessionSummary(sessionId)) {
-            telemetryManager.startSession(sessionId, userId);
+          if (!telemetryManager.getSessionSummary(effectiveSessionId)) {
+            telemetryManager.startSession(effectiveSessionId, userId);
           }
 
-          telemetryManager.addTranscriptEntry(sessionId, {
+          telemetryManager.addTranscriptEntry(effectiveSessionId, {
             speaker: 'user',
             content: message,
             topic: enhancedResponse.topic,
             energyLevel: effectiveEnergyLevel
           });
 
-          telemetryManager.addTranscriptEntry(sessionId, {
+          telemetryManager.addTranscriptEntry(effectiveSessionId, {
             speaker: 'tutor',
             content: enhancedResponse.content,
             topic: enhancedResponse.topic,
@@ -106,8 +127,12 @@ router.post('/generate-response', async (req, res) => {
           topic: enhancedResponse.topic,
           repairMove: enhancedResponse.repairMove,
           usedFallback: enhancedResponse.usedFallback,
+          usedCache: enhancedResponse.usedCache,
+          breakerOpen: enhancedResponse.breakerOpen,
+          queueDepth: enhancedResponse.queueDepth,
           banner: enhancedResponse.banner,
-          retryCount: enhancedResponse.retryCount
+          retryCount: enhancedResponse.retryCount,
+          plan: enhancedResponse.plan
         });
       } catch (error) {
         console.error('[Voice API] Azure TTS failed, falling back to test mode:', error);
@@ -117,20 +142,20 @@ router.post('/generate-response', async (req, res) => {
 
     // Test mode response (browser TTS will handle synthesis)
     // Add telemetry entries for transcript
-    if (sessionId) {
+    if (effectiveSessionId) {
       // Initialize session telemetry if needed
-      if (!telemetryManager.getSessionSummary(sessionId)) {
-        telemetryManager.startSession(sessionId, userId);
+      if (!telemetryManager.getSessionSummary(effectiveSessionId)) {
+        telemetryManager.startSession(effectiveSessionId, userId);
       }
 
-      telemetryManager.addTranscriptEntry(sessionId, {
+      telemetryManager.addTranscriptEntry(effectiveSessionId, {
         speaker: 'user',
         content: message,
         topic: enhancedResponse.topic,
         energyLevel: effectiveEnergyLevel
       });
 
-      telemetryManager.addTranscriptEntry(sessionId, {
+      telemetryManager.addTranscriptEntry(effectiveSessionId, {
         speaker: 'tutor',
         content: enhancedResponse.content,
         topic: enhancedResponse.topic,
@@ -146,8 +171,12 @@ router.post('/generate-response', async (req, res) => {
       topic: enhancedResponse.topic,
       repairMove: enhancedResponse.repairMove,
       usedFallback: enhancedResponse.usedFallback,
+      usedCache: enhancedResponse.usedCache,
+      breakerOpen: enhancedResponse.breakerOpen,
+      queueDepth: enhancedResponse.queueDepth,
       banner: enhancedResponse.banner,
-      retryCount: enhancedResponse.retryCount
+      retryCount: enhancedResponse.retryCount,
+      plan: enhancedResponse.plan
     });
 
   } catch (error) {

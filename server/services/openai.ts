@@ -44,6 +44,7 @@ interface EnhancedTutorResponse {
 }
 
 class OpenAIService {
+  private recentResponses: Map<string, string[]> = new Map(); // sessionId -> last 2 responses
   async generateTutorResponse(message: string, context: TutorContext): Promise<string> {
     return this.generateEnhancedTutorResponse(message, context).then(r => r.content);
   }
@@ -135,18 +136,41 @@ class OpenAIService {
         // Classify topic for confidence checking
         const topicClassification = topicRouter.classifyTopic(normalizedMessage);
 
-        // Build complete system prompt
+        // TOPIC GUARD: Check if user input is off-topic from current lesson
+        const topicGuardResult = this.checkTopicGuard(normalizedMessage, context, topicClassification);
+        if (topicGuardResult.isOffTopic) {
+          console.log(`[OpenAI] Topic guard triggered: ${topicGuardResult.reason}`);
+          
+          return {
+            content: topicGuardResult.redirectMessage,
+            topic: topicClassification.topic,
+            repairMove: true,
+            usedFallback: false,
+            usedCache: false,
+            breakerOpen: false,
+            queueDepth: userQueue.getQueueDepth(),
+            banner: topicGuardResult.banner,
+            retryCount: 0,
+            tokensUsed: 0,
+            model
+          };
+        }
+
+        // Build complete system prompt with lesson grounding
         const systemPrompt = `${TUTOR_SYSTEM_PROMPT}
 
 ${lessonPrompt}
 
 Current energy: ${context.energyLevel || 'upbeat'}
 
+TOPIC FOCUS: Always stay within the current lesson's subject area. If the student asks about something outside this lesson, briefly redirect them back to the lesson topic or offer to switch lessons.
+
 Response rules:
 1. Maximum 2 sentences per turn
 2. End with a question
 3. Never create or invent user messages
-4. Use the tutor_plan function for structured responses`;
+4. Use the tutor_plan function for structured responses
+5. Stay grounded in the current lesson context`;
 
         // Step 5: Execute OpenAI call through circuit breaker
         const llmResult = await openaiCircuitBreaker.execute(async () => {
@@ -196,21 +220,29 @@ Response rules:
           }
         }
 
-        // Step 6: Cache the successful response
-        semanticCache.set(lessonId, normalizedMessage, content, subject);
+        // Step 6: Anti-repeat & coherence check
+        const deduplicatedContent = this.checkAndHandleRepeat(content, context.sessionId, subject, lessonId);
+        content = deduplicatedContent.content;
+        const wasRepeated = deduplicatedContent.wasRepeated;
+
+        // Step 7: Cache the successful response (only if not repeated)
+        if (!wasRepeated) {
+          semanticCache.set(lessonId, normalizedMessage, content, subject);
+        }
 
         const finalResponse: EnhancedTutorResponse = {
           content,
           plan,
           topic: topicClassification.topic,
-          repairMove: topicClassification.confidence < 0.4,
+          repairMove: topicClassification.confidence < 0.4 || wasRepeated,
           usedFallback: false,
           usedCache: false,
           breakerOpen: false,
           queueDepth: userQueue.getQueueDepth(),
           retryCount: 0,
           tokensUsed,
-          model
+          model,
+          banner: wasRepeated ? "Generating fresh response" : undefined
         };
 
         // Step 7: Debug logging with scalability metrics
@@ -258,18 +290,209 @@ Response rules:
       }
     }, true); // Enable barge-in for real-time conversations
   }
-      if (context.sessionId) {
-        let convContext = conversationManager.getContext(context.sessionId);
-        if (!convContext) {
-          convContext = conversationManager.initializeContext(context.sessionId, context.userId);
-        }
-      }
 
-      // Build lesson-grounded system prompt
-      let lessonPrompt = '';
-      let subjectInstruction = SUBJECT_PROMPTS.general;
+  // Topic guard to ensure lesson grounding and detect off-topic questions
+  private checkTopicGuard(userInput: string, context: TutorContext, topicClassification: any): { 
+    isOffTopic: boolean; 
+    redirectMessage?: string; 
+    banner?: string; 
+    reason?: string; 
+  } {
+    // If no lesson context, allow general conversation
+    if (!context.lessonContext) {
+      return { isOffTopic: false };
+    }
+
+    const { subject, title } = context.lessonContext;
+    const currentSubject = subject.toLowerCase();
+    const detectedTopic = topicClassification.topic;
+    const confidence = topicClassification.confidence;
+
+    // Define subject mappings for more flexible matching
+    const subjectMappings: Record<string, string[]> = {
+      'math': ['math', 'mathematics', 'arithmetic', 'algebra', 'geometry'],
+      'english': ['english', 'grammar', 'reading', 'writing', 'language'],
+      'spanish': ['spanish', 'español', 'language'],
+      'science': ['science', 'biology', 'chemistry', 'physics'],
+      'history': ['history', 'social studies', 'geography']
+    };
+
+    // Check if detected topic matches current lesson subject
+    const currentSubjectVariants = subjectMappings[currentSubject] || [currentSubject];
+    const isTopicMatch = currentSubjectVariants.includes(detectedTopic) || 
+                        detectedTopic === 'general' || 
+                        confidence < 0.4; // Low confidence = unclear, allow
+
+    // If topic matches or is unclear, continue with lesson
+    if (isTopicMatch) {
+      return { isOffTopic: false };
+    }
+
+    // Generate appropriate redirect message based on detected vs current topic
+    const redirectMessages = {
+      mathToOther: `That's a great ${detectedTopic} question! We're currently working on ${title} in math. Want to finish this math concept first, or should we switch to ${detectedTopic}?`,
+      englishToOther: `Interesting ${detectedTopic} question! Right now we're focusing on ${title} in English. Should we complete this lesson first, or would you like to explore ${detectedTopic}?`,
+      spanishToOther: `¡Buena pregunta! But we're currently on ${title} in Spanish. Want to continue with Spanish, or switch to ${detectedTopic}?`,
+      otherToOther: `That's about ${detectedTopic}, but we're working on ${title} in ${subject}. Should we stay on this ${subject} lesson or switch topics?`,
+      general: `We're currently focused on ${title} in ${subject}. Want to continue with this lesson, or explore something else?`
+    };
+
+    let redirectMessage: string;
+    let reason: string;
+
+    if (currentSubject === 'math' && detectedTopic !== 'math') {
+      redirectMessage = redirectMessages.mathToOther;
+      reason = `Math lesson but detected ${detectedTopic}`;
+    } else if (currentSubject === 'english' && !['grammar', 'reading'].includes(detectedTopic)) {
+      redirectMessage = redirectMessages.englishToOther;
+      reason = `English lesson but detected ${detectedTopic}`;
+    } else if (currentSubject === 'spanish' && detectedTopic !== 'spanish') {
+      redirectMessage = redirectMessages.spanishToOther;
+      reason = `Spanish lesson but detected ${detectedTopic}`;
+    } else {
+      redirectMessage = redirectMessages.otherToOther;
+      reason = `${currentSubject} lesson but detected ${detectedTopic}`;
+    }
+
+    return {
+      isOffTopic: true,
+      redirectMessage,
+      banner: `Staying focused on ${subject} - ${title}`,
+      reason
+    };
+  }
+
+  // Anti-repeat & coherence logic - deduplicate assistant output per session
+  private checkAndHandleRepeat(content: string, sessionId?: string, subject?: string, lessonId?: string): { content: string; wasRepeated: boolean } {
+    if (!sessionId) {
+      return { content, wasRepeated: false };
+    }
+
+    // Normalize response for comparison
+    const normalizedContent = this.normalizeResponseForComparison(content);
+    
+    // Get recent responses for this session
+    const recentResponses = this.recentResponses.get(sessionId) || [];
+    
+    // Check if this response matches either of the last 2 assistant messages
+    const isRepeat = recentResponses.some(recent => 
+      this.normalizeResponseForComparison(recent) === normalizedContent
+    );
+
+    if (isRepeat) {
+      console.log(`[OpenAI] Detected repeat response for session ${sessionId}, generating alternative`);
       
-      if (context.lessonContext) {
+      // Generate a different templated line tied to the lesson step
+      const alternativeContent = this.generateAlternativeResponse(subject, lessonId, sessionId);
+      
+      // Check if the alternative is also a repeat
+      const normalizedAlternative = this.normalizeResponseForComparison(alternativeContent);
+      const isAlternativeRepeat = recentResponses.some(recent => 
+        this.normalizeResponseForComparison(recent) === normalizedAlternative
+      );
+
+      const finalContent = isAlternativeRepeat ? 
+        this.generateFallbackVariation(subject, lessonId) : 
+        alternativeContent;
+
+      // Update recent responses with the new content
+      this.updateRecentResponses(sessionId, finalContent);
+      
+      return { content: finalContent, wasRepeated: true };
+    }
+
+    // Not a repeat, track this response
+    this.updateRecentResponses(sessionId, content);
+    
+    return { content, wasRepeated: false };
+  }
+
+  // Normalize response for comparison (remove punctuation, extra spaces, etc.)
+  private normalizeResponseForComparison(response: string): string {
+    return response
+      .toLowerCase()
+      .replace(/[^\w\s]/g, '') // Remove punctuation
+      .replace(/\s+/g, ' ')     // Normalize spaces
+      .trim();
+  }
+
+  // Update recent responses, keeping only last 2
+  private updateRecentResponses(sessionId: string, response: string): void {
+    const responses = this.recentResponses.get(sessionId) || [];
+    responses.push(response);
+    
+    // Keep only last 2 responses
+    if (responses.length > 2) {
+      responses.shift();
+    }
+    
+    this.recentResponses.set(sessionId, responses);
+  }
+
+  // Generate alternative response tied to lesson step
+  private generateAlternativeResponse(subject?: string, lessonId?: string, sessionId?: string): string {
+    const alternatives: Record<string, string[]> = {
+      math: [
+        "Let me approach this differently. What's the first step you'd take here?",
+        "Good point! Let's try a new way. Can you show me your thinking?",
+        "I see what you mean. How about we solve this together step by step?",
+        "That's interesting! What patterns do you notice in this problem?"
+      ],
+      english: [
+        "Let me rephrase that. What do you think this word means in context?",
+        "Good observation! How would you describe this in your own words?",
+        "I understand. Can you give me an example of what you're thinking?",
+        "That's a great question! What clues can you find in the text?"
+      ],
+      spanish: [
+        "¡Perfecto! Let me ask this another way. ¿Cómo se dice en español?",
+        "Muy bien! Can you try using that word in a sentence?",
+        "¡Excelente! What other Spanish words do you remember?",
+        "¡Buena pregunta! How would you greet someone in Spanish?"
+      ],
+      general: [
+        "Let me try a different approach. What interests you most about this topic?",
+        "Good thinking! Can you tell me more about what you already know?",
+        "I see your point. What would you like to explore first?",
+        "That's a thoughtful question! What examples can you think of?"
+      ]
+    };
+
+    const subjectKey = subject?.toLowerCase() || 'general';
+    const responses = alternatives[subjectKey] || alternatives.general;
+    
+    // Use simple rotation to avoid immediate repeats
+    const sessionKey = `alt_${sessionId}_${subjectKey}`;
+    const counter = this.getSessionCounter(sessionKey);
+    
+    return responses[counter % responses.length];
+  }
+
+  // Generate fallback variation when even alternatives repeat
+  private generateFallbackVariation(subject?: string, lessonId?: string): string {
+    const timestamp = new Date().toLocaleTimeString();
+    const variations = [
+      `I want to make sure I'm helping effectively. What specific part would you like to focus on?`,
+      `Let me pause and ask - what's the most important thing for you to understand right now?`,
+      `I'd like to help you in the best way possible. What would be most useful for you?`,
+      `Let's make sure we're on the right track. What questions do you have about this topic?`
+    ];
+    
+    return variations[Math.floor(Math.random() * variations.length)];
+  }
+
+  // Get session counter for rotation
+  private getSessionCounter(key: string): number {
+    if (!this.sessionCounters) {
+      this.sessionCounters = {};
+    }
+    if (!this.sessionCounters[key]) {
+      this.sessionCounters[key] = 0;
+    }
+    return this.sessionCounters[key]++;
+  }
+
+  private sessionCounters: Record<string, number> = {};
         const { subject, title, objectives, keyTerms } = context.lessonContext;
         subjectInstruction = SUBJECT_PROMPTS[subject as keyof typeof SUBJECT_PROMPTS] || SUBJECT_PROMPTS.general;
         
