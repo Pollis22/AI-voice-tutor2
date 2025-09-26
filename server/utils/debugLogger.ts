@@ -13,11 +13,17 @@ interface TurnLog {
   speechDuration?: number;
   speechConfidence?: number;
   error?: string;
+  sessionId?: string;
+  userId?: string;
+  queueDepth?: number;
+  usedCache?: boolean;
+  breakerOpen?: boolean;
 }
 
 export class DebugLogger {
   private logs: TurnLog[] = [];
-  private maxLogs = 50;
+  private maxLogs = 100;
+  private recentTurns: TurnLog[] = [];
   private enabled: boolean = false;
   
   constructor() {
@@ -34,10 +40,14 @@ export class DebugLogger {
     
     // Add to memory buffer
     this.logs.push(log);
+    this.recentTurns.push(log);
     
     // Keep only last N logs
     if (this.logs.length > this.maxLogs) {
       this.logs = this.logs.slice(-this.maxLogs);
+    }
+    if (this.recentTurns.length > this.maxLogs) {
+      this.recentTurns = this.recentTurns.slice(-this.maxLogs);
     }
     
     // Console log in structured format
@@ -49,6 +59,10 @@ export class DebugLogger {
   
   getRecentLogs(count: number = 50): TurnLog[] {
     return this.logs.slice(-count);
+  }
+
+  getRecentTurns(limit: number = 50): TurnLog[] {
+    return this.logs.slice(-limit);
   }
   
   clearLogs() {

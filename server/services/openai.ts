@@ -7,6 +7,10 @@ import { LessonContext, SUBJECT_PROMPTS, ASR_CONFIG } from '../types/lessonConte
 import { lessonService } from './lessonService';
 import { debugLogger } from '../utils/debugLogger';
 import { retryOpenAICall, validateAndLogOpenAIKey, getRedactedOrgId, type OpenAIRetryResult } from '../utils/openaiRetryHandler';
+import { openaiCircuitBreaker } from './circuitBreaker';
+import { userQueueManager } from './userQueueManager';
+import { semanticCache } from './semanticCache';
+import { inputGatingService } from './inputGating';
 
 // Validate and log API key status on startup
 const keyStatus = validateAndLogOpenAIKey();
@@ -34,6 +38,9 @@ interface EnhancedTutorResponse {
   tokensUsed?: number;
   model?: string;
   banner?: string;
+  queueDepth?: number;
+  usedCache?: boolean;
+  breakerOpen?: boolean;
 }
 
 class OpenAIService {
@@ -41,26 +48,216 @@ class OpenAIService {
     return this.generateEnhancedTutorResponse(message, context).then(r => r.content);
   }
 
-  // Enhanced conversation response with lesson grounding and turn gating
-  async generateEnhancedTutorResponse(message: string, context: TutorContext): Promise<EnhancedTutorResponse> {
+  // Enhanced conversation response with scalable architecture
+  async generateEnhancedTutorResponse(message: string, context: TutorContext, speechData?: { 
+    duration?: number; 
+    confidence?: number; 
+  }): Promise<EnhancedTutorResponse> {
     const startTime = Date.now();
     const model = LLM_CONFIG.model;
+    const sessionId = context.sessionId || `${context.userId}-default`;
+    const lessonId = context.lessonId || 'general';
     
-    try {
-      // TURN GATING: Validate actual user input exists
-      const trimmedMessage = message?.trim() || '';
-      if (!trimmedMessage || trimmedMessage.length < 2) {
-        console.log(`[OpenAI] Gated: No valid user input (message: "${message}")`);
-        throw new Error('No valid user input provided');
+    // Get user queue for this session (ensures concurrency = 1 per user)
+    const userQueue = userQueueManager.getQueue(sessionId);
+    
+    return userQueue.enqueue(async () => {
+      try {
+        // Step 1: Input Gating & Validation
+        const gatingResult = inputGatingService.validate({
+          message,
+          speechDuration: speechData?.duration,
+          speechConfidence: speechData?.confidence,
+          timestamp: Date.now()
+        });
+
+        if (!gatingResult.isValid) {
+          console.log(`[OpenAI] Input gated: ${gatingResult.reason}`);
+          
+          return {
+            content: "I didn't catch that clearly. Could you please try again?",
+            usedFallback: true,
+            queueDepth: userQueue.getQueueDepth(),
+            banner: "Having trouble understanding - please speak clearly",
+            retryCount: 0,
+            tokensUsed: 0,
+            model,
+            breakerOpen: openaiCircuitBreaker.isOpen()
+          };
+        }
+
+        const normalizedMessage = gatingResult.normalizedInput || message.trim();
+        const subject = context.lessonContext?.subject || lessonId.split('-')[0] || 'general';
+
+        // Step 2: Semantic Cache Check
+        const cacheResult = semanticCache.get(lessonId, normalizedMessage);
+        if (cacheResult) {
+          console.log(`[OpenAI] Cache hit for lesson: ${lessonId}`);
+          
+          return {
+            content: cacheResult.content,
+            usedCache: true,
+            queueDepth: userQueue.getQueueDepth(),
+            retryCount: 0,
+            tokensUsed: 0,
+            model,
+            breakerOpen: openaiCircuitBreaker.isOpen()
+          };
+        }
+
+        // Step 3: Circuit Breaker Check
+        if (openaiCircuitBreaker.isOpen()) {
+          console.log(`[OpenAI] Circuit breaker open - using fallback`);
+          
+          const fallbackResult = this.getLessonSpecificFallback(subject, normalizedMessage, sessionId);
+          
+          return {
+            content: fallbackResult.content,
+            usedFallback: true,
+            breakerOpen: true,
+            queueDepth: userQueue.getQueueDepth(),
+            banner: fallbackResult.banner || "High traffic—using quick tips",
+            retryCount: 0,
+            tokensUsed: 0,
+            model
+          };
+        }
+
+        // Step 4: Load lesson context and prepare system prompt
+        if (context.lessonId && !context.lessonContext) {
+          context.lessonContext = await lessonService.getLessonContext(context.lessonId) || undefined;
+        }
+
+        const lessonPrompt = context.lessonContext ? 
+          lessonService.getLessonPrompt(context.lessonContext) : 
+          SUBJECT_PROMPTS[subject as keyof typeof SUBJECT_PROMPTS] || SUBJECT_PROMPTS.general;
+
+        // Classify topic for confidence checking
+        const topicClassification = topicRouter.classifyTopic(normalizedMessage);
+
+        // Build complete system prompt
+        const systemPrompt = `${TUTOR_SYSTEM_PROMPT}
+
+${lessonPrompt}
+
+Current energy: ${context.energyLevel || 'upbeat'}
+
+Response rules:
+1. Maximum 2 sentences per turn
+2. End with a question
+3. Never create or invent user messages
+4. Use the tutor_plan function for structured responses`;
+
+        // Step 5: Execute OpenAI call through circuit breaker
+        const llmResult = await openaiCircuitBreaker.execute(async () => {
+          return await openai.chat.completions.create({
+            model,
+            messages: [
+              { role: "system", content: systemPrompt },
+              { role: "user", content: normalizedMessage }
+            ],
+            temperature: LLM_CONFIG.temperature,
+            max_tokens: LLM_CONFIG.maxTokens,
+            top_p: LLM_CONFIG.topP,
+            presence_penalty: LLM_CONFIG.presencePenalty,
+            tools: [TUTOR_PLAN_SCHEMA],
+            tool_choice: { type: "function", function: { name: "tutor_plan" } }
+          });
+        });
+
+        const tokensUsed = llmResult.usage?.total_tokens || 0;
+        let content = llmResult.choices[0].message.content || "I'm here to help you learn! What would you like to explore?";
+        let plan: TutorPlan | undefined;
+
+        // Parse the required tutor_plan tool call
+        const toolCalls = llmResult.choices[0].message.tool_calls;
+        if (toolCalls && toolCalls.length > 0) {
+          const planCall = toolCalls.find(call => call.type === 'function' && call.function.name === 'tutor_plan');
+          if (planCall && planCall.type === 'function') {
+            try {
+              const planData = JSON.parse(planCall.function.arguments);
+              plan = {
+                goal: planData.goal,
+                plan: planData.plan,
+                next_prompt: planData.next_prompt,
+                followup_options: planData.followup_options
+              };
+              
+              // Use only the next_prompt as the spoken content
+              content = this.enforceConcisenessAndQuestion(plan.next_prompt);
+              
+              // Store plan in conversation manager
+              if (context.sessionId) {
+                conversationManager.addPlan(context.sessionId, plan);
+              }
+            } catch (error) {
+              console.warn('[OpenAI] Failed to parse tutor_plan tool call:', error);
+            }
+          }
+        }
+
+        // Step 6: Cache the successful response
+        semanticCache.set(lessonId, normalizedMessage, content, subject);
+
+        const finalResponse: EnhancedTutorResponse = {
+          content,
+          plan,
+          topic: topicClassification.topic,
+          repairMove: topicClassification.confidence < 0.4,
+          usedFallback: false,
+          usedCache: false,
+          breakerOpen: false,
+          queueDepth: userQueue.getQueueDepth(),
+          retryCount: 0,
+          tokensUsed,
+          model
+        };
+
+        // Step 7: Debug logging with scalability metrics
+        this.logEnhancedDebugInfo({
+          context,
+          userInput: normalizedMessage,
+          response: finalResponse,
+          startTime,
+          speechDuration: speechData?.duration,
+          speechConfidence: speechData?.confidence
+        });
+
+        return finalResponse;
+
+      } catch (error) {
+        console.error(`[OpenAI] Error in enhanced response generation:`, error);
+        
+        // Return contextual fallback
+        const subject = context.lessonContext?.subject || lessonId.split('-')[0] || 'general';
+        const fallbackResult = this.getLessonSpecificFallback(subject, normalizedMessage, sessionId);
+        
+        const fallbackResponse: EnhancedTutorResponse = {
+          content: fallbackResult.content,
+          topic: 'general',
+          repairMove: false,
+          usedFallback: true,
+          usedCache: false,
+          breakerOpen: openaiCircuitBreaker.isOpen(),
+          queueDepth: userQueue.getQueueDepth(),
+          banner: fallbackResult.banner,
+          retryCount: 0,
+          tokensUsed: 0,
+          model
+        };
+
+        this.logEnhancedDebugInfo({
+          context,
+          userInput: normalizedMessage,
+          response: fallbackResponse,
+          startTime,
+          error: (error as Error)?.message
+        });
+
+        return fallbackResponse;
       }
-      
-      // Load lesson context if lessonId provided
-      if (context.lessonId && !context.lessonContext) {
-        context.lessonContext = await lessonService.getLessonContext(context.lessonId) || undefined;
-        console.log(`[OpenAI] Loaded lesson context for ${context.lessonId}: ${context.lessonContext?.title}`);
-      }
-      
-      // Initialize or get conversation context
+    }, true); // Enable barge-in for real-time conversations
+  }
       if (context.sessionId) {
         let convContext = conversationManager.getContext(context.sessionId);
         if (!convContext) {
@@ -259,8 +456,8 @@ Response rules:
     return result;
   }
   
-  // Centralized debug logging
-  private logDebugInfo(data: {
+  // Enhanced debug logging with scalability metrics
+  private logEnhancedDebugInfo(data: {
     context: TutorContext;
     userInput: string;
     response: EnhancedTutorResponse;
@@ -287,10 +484,29 @@ Response rules:
       error
     });
     
-    // Debug mode logging (when DEBUG_TUTOR=1)
+    // Debug mode logging (when DEBUG_TUTOR=1) with scalability metrics
     if (process.env.DEBUG_TUTOR === '1') {
       const orgId = getRedactedOrgId();
-      console.log(`[OpenAI DEBUG] org: ${orgId}, model: ${response.model}, tokens: ${response.tokensUsed}, retryCount: ${response.retryCount}, usedFallback: ${response.usedFallback}`);
+      const queueMetrics = userQueueManager.getGlobalMetrics();
+      const cacheMetrics = semanticCache.getMetrics();
+      const circuitMetrics = openaiCircuitBreaker.getMetrics();
+      
+      console.log(`[OpenAI DEBUG] ${JSON.stringify({
+        lessonId: context.lessonId || 'general',
+        usedRealtime: false, // Will be true when Realtime API is implemented
+        queueDepth: response.queueDepth || 0,
+        retryCount: response.retryCount || 0,
+        breakerOpen: response.breakerOpen || false,
+        usedCache: response.usedCache || false,
+        usedFallback: response.usedFallback || false,
+        tokens: response.tokensUsed || 0,
+        latencyMs: Date.now() - startTime,
+        orgId,
+        model: response.model,
+        globalQueues: queueMetrics.activeSessions,
+        cacheHitRate: cacheMetrics.hitRate.toFixed(1),
+        circuitState: circuitMetrics.state
+      })}`);
     }
   }
 

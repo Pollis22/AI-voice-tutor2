@@ -1,0 +1,48 @@
+Complete and integrate the scalability + reliability upgrades, and stop repetitive/off-topic replies.
+
+A) Wire the new services end-to-end
+- Connect server/services/userQueueManager.ts so each session has concurrency=1.
+- All user utterances must enqueue; cancel in-flight turn on barge-in.
+- Ensure exactly ONE LLM call per user turn.
+
+B) Backoff + circuit breaker (finish)
+- Use circuitBreaker.ts around LLM calls: 250ms, 500ms, 1s, 2s retries (max 4).
+- If still failing, open breaker 45s and serve lesson-specific fallback ONCE (no loops).
+- Show banner “High traffic—using quick tips.”
+
+C) Lesson grounding always
+- Every assistant turn must include current lesson context (subject, objective, key terms).
+- Fallbacks must use the active lesson step, not generic prompts.
+- Add topic guard: off-topic questions prompt a brief redirect or offer to switch lessons.
+
+D) Input gating & debouncing
+- Only enqueue a turn if text.trim() > 0 OR (asr.durationMs >= ASR_MIN_MS AND asr.confidence >= ASR_MIN_CONFIDENCE).
+- Defaults: ASR_MIN_MS=350, ASR_MIN_CONFIDENCE=0.5.
+
+E) Anti-repeat & coherence
+- Deduplicate assistant output per session: if the normalized text equals either of the last 2 assistant messages, regenerate once; if still same, output a different templated line tied to the lesson step.
+- Keep turns ≤ 2 sentences; always end with a question.
+
+F) Semantic cache (read-through)
+- Key: `${lessonId}:${hash(embedding(normalizedQuestion))}`; TTL from env `CACHE_TTL_MIN` (default 1440).
+- On hit, return cached text + citations; on miss, call LLM and populate.
+
+G) Voice pipeline
+- Stream sentence-by-sentence; barge-in stops playback immediately.
+- SSML defaults: voice `en-US-EmmaMultilingualNeural`, style “cheerful”, styledegree 1.2, prosody rate +6%, pitch +1st.
+- ENERGY_LEVEL=calm|neutral|upbeat maps to style/degree.
+
+H) Realtime (flagged)
+- Add USE_REALTIME flag (default true when available). If USE_REALTIME=false, keep REST path but still go through queue + breaker + cache.
+
+I) Observability
+- With DEBUG_TUTOR=1, log per turn: {lessonId, queueDepth, retryCount, breakerOpen, usedFallback, usedCache, tokens, latencyMs}.
+- Add GET /api/debug/last-turns (auth-gated) returning last 50 summaries.
+
+J) Tests
+- Parallel test for 3 simulated users:
+  1) Verify queueDepth per user never >1.
+  2) Force 429 → backoff then breaker open → a single lesson-specific fallback, no loops.
+  3) Ask same question twice → second reply served from semantic cache (<150ms).
+  4) Ask off-topic in Math → receives redirect, not grammar content.
+Deliverables: integrated queue + breaker + cache; lesson-grounded fallbacks; anti-repeat; tests passing; README updates with new env vars.
