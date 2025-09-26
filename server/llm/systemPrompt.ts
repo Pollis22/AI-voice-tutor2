@@ -9,7 +9,7 @@ export interface TutorPromptConfig {
 }
 
 export const LLM_CONFIG: TutorPromptConfig = {
-  model: "gpt-4o",
+  model: process.env.TUTOR_MODEL || "gpt-4o-mini",
   fallbackModel: "gpt-4o-mini", 
   temperature: 0.75,
   topP: 0.92,

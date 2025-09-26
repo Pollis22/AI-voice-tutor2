@@ -5,11 +5,15 @@ import { topicRouter } from './topicRouter';
 import { TutorPlan, TUTOR_PLAN_SCHEMA } from '../types/conversationState';
 import { LessonContext, SUBJECT_PROMPTS, ASR_CONFIG } from '../types/lessonContext';
 import { lessonService } from './lessonService';
-import { withExponentialBackoff, rateLimitTracker } from '../utils/rateLimitHandler';
 import { debugLogger } from '../utils/debugLogger';
+import { retryOpenAICall, validateAndLogOpenAIKey, getRedactedOrgId, type OpenAIRetryResult } from '../utils/openaiRetryHandler';
+
+// Validate and log API key status on startup
+const keyStatus = validateAndLogOpenAIKey();
 
 const openai = new OpenAI({ 
-  apiKey: process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY_ENV_VAR || "default_key" 
+  apiKey: process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY_ENV_VAR || "default_key",
+  organization: process.env.OPENAI_ORG_ID // Optional org ID
 });
 
 interface TutorContext {
@@ -25,6 +29,10 @@ interface EnhancedTutorResponse {
   plan?: TutorPlan;
   topic?: string;
   repairMove?: boolean;
+  usedFallback?: boolean;
+  retryCount?: number;
+  tokensUsed?: number;
+  model?: string;
 }
 
 class OpenAIService {
@@ -34,6 +42,9 @@ class OpenAIService {
 
   // Enhanced conversation response with lesson grounding and turn gating
   async generateEnhancedTutorResponse(message: string, context: TutorContext): Promise<EnhancedTutorResponse> {
+    const startTime = Date.now();
+    const model = LLM_CONFIG.model;
+    
     try {
       // TURN GATING: Validate actual user input exists
       const trimmedMessage = message?.trim() || '';
@@ -100,22 +111,9 @@ Response rules:
         console.log(`[OpenAI DEBUG] Topic: ${topicClassification.topic}, Confidence: ${topicClassification.confidence}`);
       }
 
-
-      let model = LLM_CONFIG.model;
-      let retryCount = 0;
-      const startTime = Date.now();
-      
-      try {
-        // Check if we're currently paused due to rate limiting
-        if (rateLimitTracker.isPaused()) {
-          const remainingPause = rateLimitTracker.getRemainingPauseTime();
-          console.log(`[OpenAI] API calls paused for ${remainingPause}ms due to rate limiting`);
-          throw new Error('API temporarily paused due to high traffic');
-        }
-        
-        const response = await withExponentialBackoff(async () => {
-          retryCount++;
-          return await openai.chat.completions.create({
+      // Single LLM call per user turn using retry handler
+      const retryResult = await retryOpenAICall(async () => {
+        return await openai.chat.completions.create({
           model,
           messages: [
             { role: "system", content: systemPrompt },
@@ -128,166 +126,168 @@ Response rules:
           tools: [TUTOR_PLAN_SCHEMA],
           tool_choice: { type: "function", function: { name: "tutor_plan" } }
         });
-        }, {
-          onRetry: (attempt, error) => {
-            console.log(`[OpenAI] Retry attempt ${attempt} after error:`, error?.message);
-            rateLimitTracker.recordError();
-          }
+      }, undefined, (context) => {
+        console.log(`[OpenAI] Retry ${context.attempt}/${context.totalAttempts} after:`, context.lastError?.message);
+      });
+      
+      // Handle retry result
+      if (retryResult.usedFallback || !retryResult.result) {
+        const subject = context.lessonContext?.subject || 'general';
+        const fallbackContent = this.getLessonSpecificFallback(subject);
+        
+        const response: EnhancedTutorResponse = {
+          content: fallbackContent,
+          topic: topicClassification.topic,
+          repairMove: false,
+          usedFallback: true,
+          retryCount: retryResult.retryCount,
+          tokensUsed: 0,
+          model
+        };
+        
+        this.logDebugInfo({
+          context,
+          userInput: message,
+          response,
+          startTime,
+          error: retryResult.error?.message
         });
         
-        // Record success
-        rateLimitTracker.recordSuccess();
-
-        let content = response.choices[0].message.content || "I'm sorry, I didn't understand that. Could you please rephrase your question?";
-        let plan: TutorPlan | undefined;
-
-        // Ensure response is concise (<=2 sentences)
-        const enforceConcisenessAndQuestion = (text: string): string => {
-          const sentences = splitIntoSentences(text);
-          let result = sentences.slice(0, 2).join(' ');
-          result = ensureEndsWithQuestion(result);
-          return result;
-        };
-        
-        // Parse the required tutor_plan tool call
-        const toolCalls = response.choices[0].message.tool_calls;
-        if (toolCalls && toolCalls.length > 0) {
-          const planCall = toolCalls.find(call => call.type === 'function' && call.function.name === 'tutor_plan');
-          if (planCall && planCall.type === 'function') {
-            try {
-              const planData = JSON.parse(planCall.function.arguments);
-              plan = {
-                goal: planData.goal,
-                plan: planData.plan,
-                next_prompt: planData.next_prompt,
-                followup_options: planData.followup_options
-              };
-              
-              // Use only the next_prompt as the spoken content (enforced, concise)
-              content = enforceConcisenessAndQuestion(plan.next_prompt);
-              
-              // Store plan in conversation manager
-              if (context.sessionId) {
-                conversationManager.addPlan(context.sessionId, plan);
-              }
-              
-              console.log(`[OpenAI] Generated plan: ${plan.goal}`);
-              
-              // Log the turn for debugging
-              const tokensUsed = response.usage?.total_tokens || 0;
-              debugLogger.logTurn({
-                lessonId: context.lessonId || 'general',
-                subject: context.lessonContext?.subject || 'general',
-                userInput: message,
-                tutorResponse: content,
-                usedFallback: false,
-                retryCount: retryCount - 1,
-                asrGated: false,
-                durationMs: Date.now() - startTime,
-                tokensUsed
-              });
-            } catch (error) {
-              console.error('[OpenAI] Failed to parse tutor plan:', error);
-              // Fallback content if plan parsing fails
-              content = "Let me think about the best way to help you learn. What would you like to explore?";
-            }
-          }
-        } else {
-          // This shouldn't happen with forced tool choice, but provide fallback
-          console.warn('[OpenAI] No tutor_plan tool call received despite forced choice');
-          content = "I'm here to help you learn! What would you like to work on?";
-        }
-        
-        return {
-          content: enforceConcisenessAndQuestion(content),
-          plan,
-          topic: topicClassification.topic,
-          repairMove: topicClassification.confidence < 0.4
-        };
-      } catch (error: any) {
-        // Check if it's a rate limit error that couldn't be resolved
-        if (error?.message === 'API temporarily paused due to high traffic' || 
-            error?.status === 429 || error?.code === 'rate_limit_exceeded') {
-          // Return lesson-specific fallback response
-          const subject = context.lessonContext?.subject || 'general';
-          const fallbackContent = this.getLessonSpecificFallback(subject);
-          
-          debugLogger.logTurn({
-            lessonId: context.lessonId || 'general',
-            subject,
-            userInput: message,
-            tutorResponse: fallbackContent,
-            usedFallback: true,
-            retryCount,
-            asrGated: false,
-            durationMs: Date.now() - startTime,
-            tokensUsed: 0,
-            error: 'Rate limit exceeded'
-          });
-          
-          return {
-            content: fallbackContent,
-            topic: topicClassification.topic,
-            repairMove: false
-          };
-        }
-        
-        // Fallback to gpt-4o-mini if gpt-4o fails
-        if (error?.error?.code === 'model_not_found' || error?.status === 404) {
-          console.log('Falling back to gpt-4o-mini');
-          const response = await openai.chat.completions.create({
-            model: LLM_CONFIG.fallbackModel,
-            messages: [
-              { role: "system", content: systemPrompt },
-              { role: "user", content: message }
-            ],
-            temperature: LLM_CONFIG.temperature,
-            max_tokens: LLM_CONFIG.maxTokens,
-            top_p: LLM_CONFIG.topP,
-            presence_penalty: LLM_CONFIG.presencePenalty,
-            tools: [TUTOR_PLAN_SCHEMA],
-            tool_choice: { type: "function", function: { name: "tutor_plan" } }
-          });
-
-          // Parse tutor_plan tool call from fallback response too
-          let content = "I'm here to help you learn! What would you like to work on?";
-          let plan: TutorPlan | undefined;
-          
-          const toolCalls = response.choices[0].message.tool_calls;
-          if (toolCalls && toolCalls.length > 0) {
-            const planCall = toolCalls.find(call => call.type === 'function' && call.function.name === 'tutor_plan');
-            if (planCall && planCall.type === 'function') {
-              try {
-                const planData = JSON.parse(planCall.function.arguments);
-                plan = {
-                  goal: planData.goal,
-                  plan: planData.plan,
-                  next_prompt: planData.next_prompt,
-                  followup_options: planData.followup_options
-                };
-                content = plan.next_prompt;
-                
-                if (context.sessionId) {
-                  conversationManager.addPlan(context.sessionId, plan);
-                }
-              } catch (error) {
-                console.error('[OpenAI Fallback] Failed to parse tutor plan:', error);
-              }
-            }
-          }
-          
-          return {
-            content,
-            plan,
-            topic: topicClassification.topic,
-            repairMove: topicClassification.confidence < 0.4
-          };
-        }
-        throw error;
+        return response;
       }
+      
+      const response = retryResult.result;
+      const tokensUsed = response.usage?.total_tokens || 0;
+
+      let content = response.choices[0].message.content || "I'm sorry, I didn't understand that. Could you please rephrase your question?";
+      let plan: TutorPlan | undefined;
+
+      // Parse the required tutor_plan tool call
+      const toolCalls = response.choices[0].message.tool_calls;
+      if (toolCalls && toolCalls.length > 0) {
+        const planCall = toolCalls.find(call => call.type === 'function' && call.function.name === 'tutor_plan');
+        if (planCall && planCall.type === 'function') {
+          try {
+            const planData = JSON.parse(planCall.function.arguments);
+            plan = {
+              goal: planData.goal,
+              plan: planData.plan,
+              next_prompt: planData.next_prompt,
+              followup_options: planData.followup_options
+            };
+            
+            // Use only the next_prompt as the spoken content (enforced, concise)
+            content = this.enforceConcisenessAndQuestion(plan.next_prompt);
+            
+            // Store plan in conversation manager
+            if (context.sessionId) {
+              conversationManager.addPlan(context.sessionId, plan);
+            }
+            
+            console.log(`[OpenAI] Generated plan: ${plan.goal}`);
+          } catch (error) {
+            console.error('[OpenAI] Failed to parse tutor plan:', error);
+            // Fallback content if plan parsing fails
+            content = "Let me think about the best way to help you learn. What would you like to explore?";
+          }
+        }
+      } else {
+        // This shouldn't happen with forced tool choice, but provide fallback
+        console.warn('[OpenAI] No tutor_plan tool call received despite forced choice');
+        content = "I'm here to help you learn! What would you like to work on?";
+      }
+      
+      const finalResponse: EnhancedTutorResponse = {
+        content: this.enforceConcisenessAndQuestion(content),
+        plan,
+        topic: topicClassification.topic,
+        repairMove: topicClassification.confidence < 0.4,
+        usedFallback: false,
+        retryCount: retryResult.retryCount,
+        tokensUsed,
+        model
+      };
+      
+      this.logDebugInfo({
+        context,
+        userInput: message,
+        response: finalResponse,
+        startTime
+      });
+      
+      return finalResponse;
+      
     } catch (error) {
       console.error("Error generating tutor response:", error);
-      throw new Error("Failed to generate response from AI tutor");
+      
+      // Return fallback response for any unexpected error
+      const subject = context.lessonContext?.subject || 'general';
+      const fallbackContent = this.getLessonSpecificFallback(subject);
+      
+      const topicClassification = topicRouter.classifyTopic(message);
+      
+      const fallbackResponse: EnhancedTutorResponse = {
+        content: fallbackContent,
+        topic: topicClassification.topic || 'general',
+        repairMove: false,
+        usedFallback: true,
+        retryCount: 0,
+        tokensUsed: 0,
+        model
+      };
+      
+      this.logDebugInfo({
+        context,
+        userInput: message,
+        response: fallbackResponse,
+        startTime,
+        error: (error as Error)?.message
+      });
+      
+      return fallbackResponse;
+    }
+  }
+
+  // Ensure response is concise (<=2 sentences) and ends with question
+  private enforceConcisenessAndQuestion(text: string): string {
+    const sentences = splitIntoSentences(text);
+    let result = sentences.slice(0, 2).join(' ');
+    result = ensureEndsWithQuestion(result);
+    return result;
+  }
+  
+  // Centralized debug logging
+  private logDebugInfo(data: {
+    context: TutorContext;
+    userInput: string;
+    response: EnhancedTutorResponse;
+    startTime: number;
+    speechDuration?: number;
+    speechConfidence?: number;
+    error?: string;
+  }) {
+    const { context, userInput, response, startTime, speechDuration, speechConfidence, error } = data;
+    
+    // Always log to debug logger
+    debugLogger.logTurn({
+      lessonId: context.lessonId || 'general',
+      subject: context.lessonContext?.subject || 'general',
+      userInput,
+      tutorResponse: response.content,
+      usedFallback: response.usedFallback || false,
+      retryCount: response.retryCount || 0,
+      asrGated: false,
+      durationMs: Date.now() - startTime,
+      tokensUsed: response.tokensUsed || 0,
+      speechDuration,
+      speechConfidence,
+      error
+    });
+    
+    // Debug mode logging (when DEBUG_TUTOR=1)
+    if (process.env.DEBUG_TUTOR === '1') {
+      const orgId = getRedactedOrgId();
+      console.log(`[OpenAI DEBUG] org: ${orgId}, model: ${response.model}, tokens: ${response.tokensUsed}, retryCount: ${response.retryCount}, usedFallback: ${response.usedFallback}`);
     }
   }
 
@@ -409,25 +409,29 @@ Remember: You're not just teaching facts, you're building confidence and curiosi
         "Let's work through this step by step. What number comes after 2?",
         "Good thinking! Can you count from 1 to 5 for me?",
         "That's a great question about numbers! How many fingers do you have on one hand?",
-        "Let's practice counting together. Can you show me three fingers?"
+        "Let's practice counting together. Can you show me three fingers?",
+        "Excellent effort with math! What's 1 plus 1?"
       ],
       english: [
         "Let's explore words together! Can you tell me a word that names something?",
         "Good effort! What's your favorite word that describes an action?",
         "Let's think about sentences. Can you make a simple sentence with the word 'cat'?",
-        "Great question! Can you think of a word that rhymes with 'bat'?"
+        "Great question! Can you think of a word that rhymes with 'bat'?",
+        "Nice work with English! What letter does your name start with?"
       ],
       spanish: [
         "¡Muy bien! Can you say 'hola' for me?",
         "Good try! Do you know how to say 'thank you' in Spanish?",
         "Let's practice greetings! How would you say 'good morning'?",
-        "Excellent! Can you count from uno to tres in Spanish?"
+        "Excellent! Can you count from uno to tres in Spanish?",
+        "¡Fantástico! What color is 'rojo' in English?"
       ],
       general: [
         "Let's explore this topic together! What would you like to learn first?",
         "That's interesting! Can you tell me what you already know about this?",
         "Good question! Let's start with the basics. What part interests you most?",
-        "I'm here to help you learn! What specific area should we focus on?"
+        "I'm here to help you learn! What specific area should we focus on?",
+        "Great thinking! What made you curious about this topic?"
       ]
     };
     
