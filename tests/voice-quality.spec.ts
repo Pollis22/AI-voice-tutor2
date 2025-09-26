@@ -155,7 +155,7 @@ test.describe('Voice Quality Verification', () => {
       
       // In a real test, we'd validate the TTS output has appropriate prosody
       // For now, we verify the API call includes the energy level
-      const networkRequests = [];
+      const networkRequests: any[] = [];
       page.on('request', request => {
         if (request.url().includes('/api/voice/generate-response')) {
           networkRequests.push(request);

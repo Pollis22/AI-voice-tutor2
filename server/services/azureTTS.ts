@@ -19,8 +19,8 @@ export class AzureTTSService {
     this.speechConfig = sdk.SpeechConfig.fromSubscription(speechKey, speechRegion);
     this.speechConfig.speechSynthesisOutputFormat = sdk.SpeechSynthesisOutputFormat.Audio16Khz32KBitRateMonoMp3;
     
-    // Set default voice
-    this.speechConfig.speechSynthesisVoiceName = process.env.AZURE_VOICE_NAME || 'en-US-EmmaMultilingualNeural';
+    // Set default voice to younger, friendlier American accent
+    this.speechConfig.speechSynthesisVoiceName = process.env.AZURE_VOICE_NAME || 'en-US-AriaNeural';
     
     // Configure audio output for server environment (buffer mode for headless servers)
     this.audioConfig = sdk.AudioConfig.fromDefaultSpeakerOutput(); // Will be overridden in synthesis for buffer mode

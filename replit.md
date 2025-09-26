@@ -29,7 +29,7 @@ The application follows a modern full-stack architecture using:
 ### Voice Technology Integration
 The platform implements an advanced voice architecture with enhanced quality and expressiveness:
 - **Live Conversations**: OpenAI Realtime API with WebRTC for real-time speech-to-speech interactions
-- **Advanced TTS**: Azure Neural Text-to-Speech (en-US-EmmaMultilingualNeural) with SSML prosody controls
+- **Advanced TTS**: Azure Neural Text-to-Speech (en-US-AriaNeural - younger, friendlier voice) with SSML prosody controls
 - **Energy Level System**: Learner-configurable voice styles (calm, neutral, upbeat) with dynamic prosody mapping
 - **Enhanced AI Responses**: GPT-4o integration with optimized conversation parameters and Socratic teaching prompts
 - **Streaming & Barge-in**: Real-time audio streaming with sentence splitting and interruption capability

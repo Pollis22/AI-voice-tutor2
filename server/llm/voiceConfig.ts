@@ -18,8 +18,8 @@ export interface VoiceConfig {
 
 // Energy level to voice style mapping
 export const VOICE_CONFIG: VoiceConfig = {
-  voiceName: process.env.AZURE_VOICE_NAME || 'en-US-EmmaMultilingualNeural',
-  fallbackVoice: 'en-US-JennyNeural',
+  voiceName: process.env.AZURE_VOICE_NAME || 'en-US-AriaNeural',
+  fallbackVoice: 'en-US-JennyNeural', // Also young and friendly
   defaultStyle: {
     style: 'cheerful',
     styleDegree: 1.2,
