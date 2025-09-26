@@ -1,0 +1,75 @@
+Fix the AI tutor so it is grounded to the selected lesson, only responds when the user actually speaks or types, and never invents “You” messages.
+
+Bugs to fix:
+- Off-topic replies (e.g., parts of speech inside a Math lesson).
+- Tutor generates “You” messages even when the user said nothing.
+- Long, rambling turns that don’t answer the question.
+
+Required changes:
+
+1) Lesson grounding & topic guard
+   - When a lesson route loads (/lesson/[id]), hydrate a LessonContext on the server with:
+     { lessonId, subject, objectives, key_terms, steps_outline } from content/lessons/*.json.
+   - Every LLM turn must include a system/tool context that contains ONLY this lesson context.
+   - Add a topic guardrail: if the user asks something outside the subject/objective of the active lesson, reply with a brief redirect:
+     “We’re currently on <subject> - <objective>. Want help on that, or switch lessons?”
+   - Add a per-subject micro-prompt:
+     math: show one step then ask a check question; keep units and symbols.
+     grammar: give definition → example → ask the learner to try one.
+     reading: summarize → ask comprehension check.
+
+2) Turn gating (NO fabricated user turns)
+   - The server must not send a user turn to the LLM unless there is actual input:
+     - text input with non-empty trimmed string, OR
+     - ASR transcript with confidence >= threshold and duration >= 300ms.
+   - Add a gate: if no valid input is present, do not call the LLM and do NOT append any “You” messages.
+   - Add an ENV to tune the ASR gate:
+     ASR_MIN_MS=300
+     ASR_MIN_CONFIDENCE=0.5
+   - On each user speech start, immediately abort any ongoing TTS (barge-in).
+
+3) State machine & concise turns
+   - Implement a minimal state machine: greet → understand → plan → teach → check → remediate/advance → close.
+   - LLM must produce at most 2 sentences per turn and end with a question.
+   - If the LLM produces >2 sentences, split into multiple TTS chunks.
+   - Set model params: temperature 0.75, top_p 0.92, presence_penalty 0.3.
+
+4) System prompt (replace current with this EXACT text)
+   """
+   You are “TutorMind,” a warm, upbeat coach. Stay strictly on the active lesson’s subject and objectives.
+   Rules:
+   - Keep responses short (8–16 spoken seconds) and end with a question.
+   - First reflect the student’s intent in one quick line; ask one clarifier only if needed.
+   - Use the Socratic method: hints and guiding questions before full solutions.
+   - If stuck: definition → example → one quick practice → check understanding.
+   - Vary phrasing; avoid repeating the same openers.
+   - If the student asks outside the current lesson, briefly redirect and offer to switch.
+   - NEVER invent user text or act as the user; speak only as the tutor.
+   """
+
+5) Voice & pacing
+   - TTS must stream sentence-by-sentence.
+   - Stop TTS immediately when mic activity starts (barge-in).
+   - Use Azure SSML with:
+     voice = process.env.AZURE_VOICE_NAME || "en-US-EmmaMultilingualNeural"
+     style = "cheerful", styledegree=1.2, prosody rate="+6%" pitch="+1st".
+   - Add ENERGY_LEVEL=calm|neutral|upbeat → map to SSML style and degree.
+
+6) Clear session & message roles
+   - On lesson change, reset conversation state and history; do not carry context across subjects.
+   - Ensure chat store clearly separates roles: "assistant" vs "user".
+   - Prevent echo: the server must not re-post the last assistant message as a new user message.
+
+7) Tests & diagnostics
+   - Add Playwright tests:
+     a) Load Math lesson, ask “what is a noun?” → response politely redirects to math topic.
+     b) Without any user input, verify no “You” messages are appended and no LLM call occurs.
+     c) Speak a short math question; verify reply ≤ 2 sentences and ends with a question.
+   - Add DEBUG_TUTOR=1 to log: lessonId, subject, gated/not-gated reason, tokens per turn, and whether barge-in aborted TTS.
+   - Document all envs in README.
+
+Deliverables:
+- Updated server conversation pipeline with lesson grounding and ASR gating.
+- New system prompt installed.
+- Barge-in + sentence streaming working.
+- Tests passing and a short README note: “How lesson grounding and input gating work”.

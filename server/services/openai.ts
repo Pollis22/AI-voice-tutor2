@@ -3,6 +3,8 @@ import { LLM_CONFIG, TUTOR_SYSTEM_PROMPT, ensureEndsWithQuestion, splitIntoSente
 import { conversationManager } from './conversationManager';
 import { topicRouter } from './topicRouter';
 import { TutorPlan, TUTOR_PLAN_SCHEMA } from '../types/conversationState';
+import { LessonContext, SUBJECT_PROMPTS, ASR_CONFIG } from '../types/lessonContext';
+import { lessonService } from './lessonService';
 
 const openai = new OpenAI({ 
   apiKey: process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY_ENV_VAR || "default_key" 
@@ -13,6 +15,7 @@ interface TutorContext {
   lessonId?: string;
   sessionId?: string;
   energyLevel?: string;
+  lessonContext?: LessonContext;
 }
 
 interface EnhancedTutorResponse {
@@ -27,9 +30,22 @@ class OpenAIService {
     return this.generateEnhancedTutorResponse(message, context).then(r => r.content);
   }
 
-  // Enhanced conversation response with planning and state management
+  // Enhanced conversation response with lesson grounding and turn gating
   async generateEnhancedTutorResponse(message: string, context: TutorContext): Promise<EnhancedTutorResponse> {
     try {
+      // TURN GATING: Validate actual user input exists
+      const trimmedMessage = message?.trim() || '';
+      if (!trimmedMessage || trimmedMessage.length < 2) {
+        console.log(`[OpenAI] Gated: No valid user input (message: "${message}")`);
+        throw new Error('No valid user input provided');
+      }
+      
+      // Load lesson context if lessonId provided
+      if (context.lessonId && !context.lessonContext) {
+        context.lessonContext = await lessonService.getLessonContext(context.lessonId) || undefined;
+        console.log(`[OpenAI] Loaded lesson context for ${context.lessonId}: ${context.lessonContext?.title}`);
+      }
+      
       // Initialize or get conversation context
       if (context.sessionId) {
         let convContext = conversationManager.getContext(context.sessionId);
@@ -38,19 +54,46 @@ class OpenAIService {
         }
       }
 
-      // Classify topic
-      const topicClassification = topicRouter.classifyTopic(message);
-      if (context.sessionId && topicClassification.confidence > 0.6) {
-        conversationManager.setTopic(context.sessionId, topicClassification.topic);
+      // Build lesson-grounded system prompt
+      let lessonPrompt = '';
+      let subjectInstruction = SUBJECT_PROMPTS.general;
+      
+      if (context.lessonContext) {
+        const { subject, title, objectives, keyTerms } = context.lessonContext;
+        subjectInstruction = SUBJECT_PROMPTS[subject as keyof typeof SUBJECT_PROMPTS] || SUBJECT_PROMPTS.general;
+        
+        lessonPrompt = `
+CURRENT LESSON:
+Subject: ${subject}
+Title: ${title}
+Objectives: ${objectives.join(', ')}
+Key Terms: ${keyTerms.join(', ')}
+
+IMPORTANT: Stay strictly on this lesson's topic. If the student asks something outside ${subject} - ${title}, respond:
+"We're currently on ${subject} - ${title}. Want help with that, or should we switch lessons?"
+
+Teaching approach for ${subject}: ${subjectInstruction}`;
+      }
+      
+      // Build complete system prompt
+      const systemPrompt = `${TUTOR_SYSTEM_PROMPT}
+
+${lessonPrompt}
+
+Current energy: ${context.energyLevel || 'upbeat'}
+
+Response rules:
+1. Maximum 2 sentences per turn
+2. End with a question
+3. Never create or invent user messages
+4. Use the tutor_plan function for structured responses`;
+
+      const debugMode = process.env.DEBUG_TUTOR === '1';
+      if (debugMode) {
+        console.log(`[OpenAI DEBUG] User input: "${message}" (${message.length} chars)`);
+        console.log(`[OpenAI DEBUG] Lesson: ${context.lessonId}, Subject: ${context.lessonContext?.subject}`);
       }
 
-      // Get dynamic system prompt based on conversation state
-      const systemPrompt = context.sessionId 
-        ? conversationManager.getSystemPrompt(context.sessionId)
-        : TUTOR_SYSTEM_PROMPT;
-
-      // Add variety with random acknowledgment
-      const acknowledgment = getRandomPhrase(ACKNOWLEDGMENT_PHRASES);
 
       let model = LLM_CONFIG.model;
       try {
