@@ -1,0 +1,49 @@
+Fix and enhance the AI Tutor’s conversational flow, voice, and reliability with the following updates:
+
+1. **Rate-Limit Handling (Backoff + Retry)**
+   - Wrap all OpenAI API calls with exponential backoff: 250ms → 500ms → 1s → 2s.
+   - If retries fail, surface a banner: “We’re pausing briefly due to high traffic.”
+   - While paused, use lesson-specific fallback responses instead of repeating the same phrase.
+   - Log x-request-id, status code, and retry count when DEBUG_TUTOR=1.
+
+2. **Input Gating (Stop AI Talking by Itself)**
+   - Only call the LLM if:
+     - `text.trim().length > 0`, OR
+     - `(asr.durationMs >= ASR_MIN_MS AND asr.confidence >= ASR_MIN_CONFIDENCE)`.
+   - Default values: `ASR_MIN_MS=300`, `ASR_MIN_CONFIDENCE=0.5`.
+   - Do not append “You” turns when input fails the gate.
+
+3. **Concise, Engaging Turns**
+   - Enforce <= 2 sentences per tutor reply.
+   - Split longer outputs into sequential TTS chunks for smoother narration.
+   - Always end responses with a question to sustain engagement.
+   - Use model params: temperature=0.75, top_p=0.92, presence_penalty=0.3.
+
+4. **Voice & Human-Like Energy**
+   - Wrap TTS in SSML with `express-as="cheerful"`, prosody rate `+6%`, pitch `+1st`.
+   - Default Azure voice: `en-US-EmmaMultilingualNeural`.
+   - Add env var: `ENERGY_LEVEL=calm|neutral|upbeat` to adjust style dynamically.
+   - Stream sentence-by-sentence and support **barge-in** (stop speaking if mic detects user input).
+
+5. **Lesson Reset + Topic Guard**
+   - On lesson switch (`/lesson/[id]`), clear conversation history and reset context.
+   - Add topic guard: if a user asks off-topic, nudge them back with:
+     - “That’s interesting, but right now we’re learning {{lessonTopic}}. Do you want to switch lessons or continue this one?”
+
+6. **Lesson-Specific Fallbacks**
+   - Math: “Let’s work through this step by step. What number comes after 2?”
+   - English: “Let’s explore words together! Can you tell me a word that names something?”
+   - Spanish: “¡Muy bien! Can you say ‘hola’ for me?”
+
+7. **Debugging & Monitoring**
+   - Add structured logs when DEBUG_TUTOR=1, showing:
+     - lessonId, subject, usedFallback, retryCount, asrGated (true/false), durationMs, tokensUsed.
+   - Keep last 50 logs in memory and expose at `/api/debug/last-turns` (auth-gated).
+
+Deliverables:
+- Update conversation engine with the above rules.
+- Ensure tests confirm:
+  1) No fabricated “You” turns.
+  2) Lesson stays on-topic.
+  3) AI never repeats the same fallback endlessly.
+  4) Barge-in works correctly.

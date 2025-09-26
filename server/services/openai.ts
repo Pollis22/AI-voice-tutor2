@@ -5,6 +5,8 @@ import { topicRouter } from './topicRouter';
 import { TutorPlan, TUTOR_PLAN_SCHEMA } from '../types/conversationState';
 import { LessonContext, SUBJECT_PROMPTS, ASR_CONFIG } from '../types/lessonContext';
 import { lessonService } from './lessonService';
+import { withExponentialBackoff, rateLimitTracker } from '../utils/rateLimitHandler';
+import { debugLogger } from '../utils/debugLogger';
 
 const openai = new OpenAI({ 
   apiKey: process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY_ENV_VAR || "default_key" 
@@ -100,8 +102,20 @@ Response rules:
 
 
       let model = LLM_CONFIG.model;
+      let retryCount = 0;
+      const startTime = Date.now();
+      
       try {
-        const response = await openai.chat.completions.create({
+        // Check if we're currently paused due to rate limiting
+        if (rateLimitTracker.isPaused()) {
+          const remainingPause = rateLimitTracker.getRemainingPauseTime();
+          console.log(`[OpenAI] API calls paused for ${remainingPause}ms due to rate limiting`);
+          throw new Error('API temporarily paused due to high traffic');
+        }
+        
+        const response = await withExponentialBackoff(async () => {
+          retryCount++;
+          return await openai.chat.completions.create({
           model,
           messages: [
             { role: "system", content: systemPrompt },
@@ -114,10 +128,27 @@ Response rules:
           tools: [TUTOR_PLAN_SCHEMA],
           tool_choice: { type: "function", function: { name: "tutor_plan" } }
         });
+        }, {
+          onRetry: (attempt, error) => {
+            console.log(`[OpenAI] Retry attempt ${attempt} after error:`, error?.message);
+            rateLimitTracker.recordError();
+          }
+        });
+        
+        // Record success
+        rateLimitTracker.recordSuccess();
 
         let content = response.choices[0].message.content || "I'm sorry, I didn't understand that. Could you please rephrase your question?";
         let plan: TutorPlan | undefined;
 
+        // Ensure response is concise (<=2 sentences)
+        const enforceConcisenessAndQuestion = (text: string): string => {
+          const sentences = splitIntoSentences(text);
+          let result = sentences.slice(0, 2).join(' ');
+          result = ensureEndsWithQuestion(result);
+          return result;
+        };
+        
         // Parse the required tutor_plan tool call
         const toolCalls = response.choices[0].message.tool_calls;
         if (toolCalls && toolCalls.length > 0) {
@@ -132,8 +163,8 @@ Response rules:
                 followup_options: planData.followup_options
               };
               
-              // Use only the next_prompt as the spoken content (enforced)
-              content = plan.next_prompt;
+              // Use only the next_prompt as the spoken content (enforced, concise)
+              content = enforceConcisenessAndQuestion(plan.next_prompt);
               
               // Store plan in conversation manager
               if (context.sessionId) {
@@ -141,6 +172,20 @@ Response rules:
               }
               
               console.log(`[OpenAI] Generated plan: ${plan.goal}`);
+              
+              // Log the turn for debugging
+              const tokensUsed = response.usage?.total_tokens || 0;
+              debugLogger.logTurn({
+                lessonId: context.lessonId || 'general',
+                subject: context.lessonContext?.subject || 'general',
+                userInput: message,
+                tutorResponse: content,
+                usedFallback: false,
+                retryCount: retryCount - 1,
+                asrGated: false,
+                durationMs: Date.now() - startTime,
+                tokensUsed
+              });
             } catch (error) {
               console.error('[OpenAI] Failed to parse tutor plan:', error);
               // Fallback content if plan parsing fails
@@ -154,12 +199,39 @@ Response rules:
         }
         
         return {
-          content,
+          content: enforceConcisenessAndQuestion(content),
           plan,
           topic: topicClassification.topic,
           repairMove: topicClassification.confidence < 0.4
         };
       } catch (error: any) {
+        // Check if it's a rate limit error that couldn't be resolved
+        if (error?.message === 'API temporarily paused due to high traffic' || 
+            error?.status === 429 || error?.code === 'rate_limit_exceeded') {
+          // Return lesson-specific fallback response
+          const subject = context.lessonContext?.subject || 'general';
+          const fallbackContent = this.getLessonSpecificFallback(subject);
+          
+          debugLogger.logTurn({
+            lessonId: context.lessonId || 'general',
+            subject,
+            userInput: message,
+            tutorResponse: fallbackContent,
+            usedFallback: true,
+            retryCount,
+            asrGated: false,
+            durationMs: Date.now() - startTime,
+            tokensUsed: 0,
+            error: 'Rate limit exceeded'
+          });
+          
+          return {
+            content: fallbackContent,
+            topic: topicClassification.topic,
+            repairMove: false
+          };
+        }
+        
         // Fallback to gpt-4o-mini if gpt-4o fails
         if (error?.error?.code === 'model_not_found' || error?.status === 404) {
           console.log('Falling back to gpt-4o-mini');
@@ -222,7 +294,9 @@ Response rules:
   // Enhanced voice conversation method with streaming support
   async generateVoiceResponse(message: string, context: TutorContext): Promise<{ content: string; chunks: string[] }> {
     try {
-      const content = await this.generateTutorResponse(message, context);
+      const enhancedResponse = await this.generateEnhancedTutorResponse(message, context);
+      const content = enhancedResponse.content;
+      // Split into sentences for streaming TTS
       const chunks = splitIntoSentences(content);
       
       console.log(`[OpenAI] Voice response generated: ${content}`);
@@ -327,6 +401,38 @@ Key guidelines:
 - Keep responses concise but comprehensive (under 150 words typically)
 
 Remember: You're not just teaching facts, you're building confidence and curiosity!`;
+  }
+  
+  private getLessonSpecificFallback(subject: string): string {
+    const fallbacks: Record<string, string[]> = {
+      math: [
+        "Let's work through this step by step. What number comes after 2?",
+        "Good thinking! Can you count from 1 to 5 for me?",
+        "That's a great question about numbers! How many fingers do you have on one hand?",
+        "Let's practice counting together. Can you show me three fingers?"
+      ],
+      english: [
+        "Let's explore words together! Can you tell me a word that names something?",
+        "Good effort! What's your favorite word that describes an action?",
+        "Let's think about sentences. Can you make a simple sentence with the word 'cat'?",
+        "Great question! Can you think of a word that rhymes with 'bat'?"
+      ],
+      spanish: [
+        "¡Muy bien! Can you say 'hola' for me?",
+        "Good try! Do you know how to say 'thank you' in Spanish?",
+        "Let's practice greetings! How would you say 'good morning'?",
+        "Excellent! Can you count from uno to tres in Spanish?"
+      ],
+      general: [
+        "Let's explore this topic together! What would you like to learn first?",
+        "That's interesting! Can you tell me what you already know about this?",
+        "Good question! Let's start with the basics. What part interests you most?",
+        "I'm here to help you learn! What specific area should we focus on?"
+      ]
+    };
+    
+    const responses = fallbacks[subject] || fallbacks.general;
+    return responses[Math.floor(Math.random() * responses.length)];
   }
 }
 
