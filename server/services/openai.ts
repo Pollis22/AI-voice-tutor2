@@ -95,28 +95,62 @@ class OpenAIService {
         const normalizedMessage = gatingResult.normalizedInput || message.trim();
         const subject = context.lessonContext?.subject || lessonId.split('-')[0] || 'general';
 
-        // Step 1.5: Check if this is an answer to a previous question and provide immediate correction
-        const answerCheckResult = this.checkAndCorrectAnswer(normalizedMessage, subject, sessionId);
-        if (answerCheckResult) {
-          // Store the new question if we're asking one in our correction
-          this.storeQuestionFromResponse(answerCheckResult, subject, sessionId);
+        // Step 1.5: Early Answer-Checking Gate (Strategic Fix)
+        const questionState = conversationManager.getQuestionState(sessionId);
+        if (questionState?.expectedAnswer && questionState.currentQuestion) {
+          console.log(`[AnswerGate] Checking answer for session ${sessionId}: "${normalizedMessage}"`);
+          
+          const checkResult = voiceIntegration.checkAnswer(
+            questionState.questionType || 'short',
+            normalizedMessage,
+            questionState.expectedAnswer,
+            questionState.options
+          );
+          
+          let acknowledgmentContent: string;
+          
+          if (checkResult.isCorrect) {
+            // CORRECT ANSWER: Acknowledge + ask next question
+            const correctPhrases = [
+              "Excellent! That's correct.",
+              "Perfect! You got it right.",
+              "Great job! That's the right answer.",
+              "Well done! Exactly right.",
+              "Fantastic! You nailed it."
+            ];
+            const nextQuestions = this.getNextQuestion(subject, questionState.currentQuestion);
+            
+            acknowledgmentContent = `${correctPhrases[Math.floor(Math.random() * correctPhrases.length)]} ${nextQuestions.question}`;
+            
+            // Clear current question and set next question state
+            conversationManager.clearQuestionState(sessionId);
+            conversationManager.setQuestionState(sessionId, nextQuestions.question, nextQuestions.expectedAnswer, nextQuestions.questionType, nextQuestions.options);
+            
+          } else {
+            // INCORRECT ANSWER: Provide correction + ask follow-up
+            acknowledgmentContent = checkResult.correction || `Not quite. The correct answer is ${questionState.expectedAnswer}. Let me help you understand this better. ${this.getFollowUpQuestion(subject, questionState.currentQuestion)}`;
+            
+            // Clear question state after providing correction
+            conversationManager.clearQuestionState(sessionId);
+          }
+          
+          console.log(`[AnswerGate] ${checkResult.isCorrect ? 'CORRECT' : 'INCORRECT'} answer processed`);
           
           return {
-            content: answerCheckResult,
+            content: acknowledgmentContent,
             plan: {
-              state: 'teaching',
-              goal: 'Provide corrective feedback and continue teaching',
-              plan: ['Correct the answer', 'Explain the concept', 'Ask follow-up question'],
-              next_prompt: answerCheckResult
+              goal: checkResult.isCorrect ? 'Acknowledge correct answer and continue' : 'Correct wrong answer and reteach',
+              plan: [checkResult.isCorrect ? 'Acknowledge success' : 'Provide correction', 'Ask next question'],
+              next_prompt: acknowledgmentContent
             },
             topic: subject,
-            repairMove: true,
+            repairMove: !checkResult.isCorrect,
             usedFallback: false,
             queueDepth: userQueue.getQueueDepth(),
             retryCount: 0,
             tokensUsed: 0,
-            model: 'local-correction',
-            banner: 'Provided immediate answer correction',
+            model: 'answer-acknowledgment-gate',
+            banner: checkResult.isCorrect ? 'Correct answer acknowledged' : 'Incorrect answer corrected',
             usedCache: false,
             breakerOpen: false
           };
@@ -334,6 +368,11 @@ Response rules:
           banner: wasRepeated ? "Generating fresh response" : undefined
         };
 
+        // Store question state if response contains a question (CRITICAL for answer acknowledgment)
+        if (context.sessionId && content.includes('?')) {
+          this.storeQuestionInConversation(content, subject, context.sessionId);
+        }
+
         // Debug logging with scalability metrics
         this.logEnhancedDebugInfo({
           context,
@@ -364,6 +403,11 @@ Response rules:
           model,
           breakerOpen: openaiCircuitBreaker.isOpen()
         };
+
+        // Store question state if fallback response contains a question
+        if (context.sessionId && errorResponse.content.includes('?')) {
+          this.storeQuestionInConversation(errorResponse.content, subject, context.sessionId);
+        }
 
         // Log error details
         this.logEnhancedDebugInfo({
@@ -1147,6 +1191,120 @@ Remember: You're not just teaching facts, you're building confidence and curiosi
     };
     
     return confidenceMap[topicClassification.topic] || 0.5;
+  }
+
+  // Helper methods for answer acknowledgment system
+  private getNextQuestion(subject: string, currentQuestion: string): { 
+    question: string; 
+    expectedAnswer: string; 
+    questionType: 'short' | 'mcq' | 'math' | 'open'; 
+    options?: string[] 
+  } {
+    const questionSequences = {
+      math: [
+        { question: "What comes after 3?", expectedAnswer: "4", questionType: 'short' as const },
+        { question: "What's 2 + 2?", expectedAnswer: "4", questionType: 'math' as const },
+        { question: "What comes after 5?", expectedAnswer: "6", questionType: 'short' as const },
+        { question: "What's 3 + 1?", expectedAnswer: "4", questionType: 'math' as const },
+        { question: "What comes after 7?", expectedAnswer: "8", questionType: 'short' as const }
+      ],
+      english: [
+        { question: "What letter comes after B?", expectedAnswer: "C", questionType: 'short' as const },
+        { question: "Can you name a word that starts with 'C'?", expectedAnswer: "cat", questionType: 'open' as const },
+        { question: "What's the opposite of 'hot'?", expectedAnswer: "cold", questionType: 'short' as const }
+      ],
+      spanish: [
+        { question: "How do you say 'hello' in Spanish?", expectedAnswer: "hola", questionType: 'short' as const },
+        { question: "What does 'gracias' mean in English?", expectedAnswer: "thank you", questionType: 'short' as const }
+      ]
+    };
+
+    const questions = questionSequences[subject as keyof typeof questionSequences] || questionSequences.math;
+    return questions[Math.floor(Math.random() * questions.length)];
+  }
+
+  private getFollowUpQuestion(subject: string, currentQuestion: string): string {
+    const followUps = {
+      math: [
+        "Let's try a simpler one: What comes after 1?",
+        "Let's count together: 1, 2... what comes next?",
+        "Think step by step: If we have 1 apple and add 1 more, how many do we have?"
+      ],
+      english: [
+        "Let's try this: What letter comes after A?",
+        "Think about the alphabet: A, B... what's next?",
+        "Can you name any word that starts with the letter A?"
+      ],
+      spanish: [
+        "Let's start simple: Can you say 'hello' in Spanish?",
+        "Think of greeting someone: How do you say 'hi'?",
+        "Let's practice: Repeat after me - 'Hola'!"
+      ]
+    };
+
+    const questions = followUps[subject as keyof typeof followUps] || followUps.math;
+    return questions[Math.floor(Math.random() * questions.length)];
+  }
+
+  // Method to store question state when tutor asks a question
+  private storeQuestionInConversation(response: string, subject: string, sessionId: string): void {
+    // Extract question from response (simple pattern matching)
+    const questionMatch = response.match(/(.+\?)/);
+    if (!questionMatch) return;
+
+    const question = questionMatch[1].trim();
+    
+    // Determine expected answer and type based on question pattern
+    let expectedAnswer = '';
+    let questionType: 'short' | 'mcq' | 'math' | 'open' = 'short';
+    let options: string[] | undefined;
+
+    // Math questions
+    if (question.includes('comes after 2')) {
+      expectedAnswer = '3';
+      questionType = 'short';
+    } else if (question.includes('2 + 2') || question.includes('2 plus 2')) {
+      expectedAnswer = '4';
+      questionType = 'math';
+    } else if (question.includes('comes after 3')) {
+      expectedAnswer = '4';
+      questionType = 'short';
+    } else if (question.includes('comes after 5')) {
+      expectedAnswer = '6';
+      questionType = 'short';
+    } else if (question.includes('3 + 1') || question.includes('3 plus 1')) {
+      expectedAnswer = '4';
+      questionType = 'math';
+    } else if (question.includes('comes after 7')) {
+      expectedAnswer = '8';
+      questionType = 'short';
+    }
+    // English questions
+    else if (question.includes('after B')) {
+      expectedAnswer = 'C';
+      questionType = 'short';
+    } else if (question.includes('opposite of')) {
+      expectedAnswer = 'cold';
+      questionType = 'short';
+    }
+    // Spanish questions
+    else if (question.includes('hello') && question.includes('Spanish')) {
+      expectedAnswer = 'hola';
+      questionType = 'short';
+    } else if (question.includes('gracias')) {
+      expectedAnswer = 'thank you';
+      questionType = 'short';
+    }
+    // General fallback
+    else {
+      expectedAnswer = 'unknown';
+      questionType = 'open';
+    }
+
+    if (expectedAnswer !== 'unknown') {
+      conversationManager.setQuestionState(sessionId, question, expectedAnswer, questionType, options);
+      console.log(`[StoreQuestion] Stored question for session ${sessionId}: "${question}" expects "${expectedAnswer}"`);
+    }
   }
 }
 
