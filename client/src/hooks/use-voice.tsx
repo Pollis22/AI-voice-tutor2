@@ -103,7 +103,7 @@ export function useVoice() {
     }
   }, []);
 
-  const setupRealtimeConnection = useCallback(async (token: string, config: VoiceConfig) => {
+  const setupRealtimeConnection = useCallback(async (token: string, config: VoiceConfig, lessonId: string) => {
     try {
       if (config.testMode) {
         // Test mode with browser text-to-speech and speech recognition
@@ -113,38 +113,28 @@ export function useVoice() {
         setIsConnected(true);
         
         // Simulated AI responses based on user input patterns
-        const generateAIResponse = (userInput: string): string => {
-          const input = userInput.toLowerCase();
-          
-          // Check for various input patterns and respond accordingly
-          if (input.includes('hello') || input.includes('hi')) {
-            return "Hello! It's great to have you here. What subject would you like to learn about today?";
-          } else if (input.includes('noun')) {
-            return "Excellent! A noun is a word that names a person, place, thing, or idea. For example, 'teacher', 'school', 'book', and 'happiness' are all nouns. Can you give me an example of a noun from your surroundings?";
-          } else if (input.includes('verb')) {
-            return "Great question! A verb is a word that shows action or state of being. Words like 'run', 'think', 'is', and 'become' are verbs. What's your favorite action verb?";
-          } else if (input.includes('adjective')) {
-            return "Good thinking! An adjective is a word that describes a noun. Words like 'blue', 'happy', 'tall', and 'interesting' are adjectives. Can you describe something around you using an adjective?";
-          } else if (input.includes('yes') || input.includes('ready')) {
-            return "Wonderful! Let's begin. Today we'll explore parts of speech. Do you know what a noun is?";
-          } else if (input.includes('no') || input.includes('not sure')) {
-            return "That's perfectly fine! Learning is all about discovering new things. Let me explain. Can you tell me what you'd like to know?";
-          } else if (input.includes('book') || input.includes('computer') || input.includes('desk') || input.includes('phone')) {
-            return `Yes! '${userInput}' is a great example of a noun! It's a thing we can see and touch. Can you think of a noun that names a feeling or idea?`;
-          } else if (input.includes('love') || input.includes('happiness') || input.includes('anger') || input.includes('joy')) {
-            return `Perfect! '${userInput}' is an abstract noun - it names a feeling or concept we can't physically touch. You're really getting this!`;
-          } else if (input.includes('thank') || input.includes('bye') || input.includes('goodbye')) {
-            return "You're very welcome! Great job today. Remember to practice identifying parts of speech in your daily reading. See you next time!";
-          } else {
-            // Default responses for continuing conversation
-            const responses = [
+        const generateAIResponse = async (userInput: string): Promise<string> => {
+          try {
+            const response = await apiRequest("POST", "/api/voice/generate-response", {
+              message: userInput,
+              lessonId: lessonId || 'general',
+              sessionId: sessionId,
+              energyLevel: 'upbeat' // Default energy level
+            });
+            
+            const data = await response.json();
+            return data.content || "I'm here to help you learn! What would you like to explore?";
+          } catch (error) {
+            console.error('[Voice] Error generating AI response:', error);
+            // Fallback to simple responses if API fails
+            const fallbackResponses = [
               "That's an interesting point! Can you tell me more about your thinking?",
               "Good observation! Let's explore that further. What else do you notice?",
               "I like how you're thinking about this. Can you give me an example?",
               "You're on the right track! What makes you say that?",
               "Excellent effort! Let's think about this together. What do you know so far?"
             ];
-            return responses[Math.floor(Math.random() * responses.length)];
+            return fallbackResponses[Math.floor(Math.random() * fallbackResponses.length)];
           }
         };
         
@@ -168,8 +158,8 @@ export function useVoice() {
             timestamp: Date.now()
           }]);
           
-          // Generate AI response
-          const aiResponse = generateAIResponse(transcript);
+          // Generate AI response (now async)
+          const aiResponse = await generateAIResponse(transcript);
           console.log('[Voice] AI response:', aiResponse);
           
           // Stop listening before AI speaks to prevent feedback
@@ -345,7 +335,7 @@ export function useVoice() {
         }
         
         // Setup realtime connection for test mode
-        const connection = await setupRealtimeConnection(token, config);
+        const connection = await setupRealtimeConnection(token, config, lessonId);
         realtimeConnectionRef.current = connection;
         
         await connection.connect();
@@ -365,7 +355,7 @@ export function useVoice() {
       await getUserMedia();
       
       // Setup realtime connection for real mode
-      const connection = await setupRealtimeConnection(token, config);
+      const connection = await setupRealtimeConnection(token, config, lessonId);
       realtimeConnectionRef.current = connection;
       
       // Connect to the service

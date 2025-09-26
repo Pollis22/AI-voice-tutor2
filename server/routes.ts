@@ -5,6 +5,7 @@ import { storage } from "./storage";
 import { voiceService } from "./services/voice";
 import { lessonsService } from "./services/lessons";
 import { openaiService } from "./services/openai";
+import voiceRoutes from "./routes/voiceRoutes";
 import Stripe from "stripe";
 import { z } from "zod";
 
@@ -35,7 +36,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Setup authentication
   setupAuth(app);
 
-  // Voice API routes
+  // Enhanced voice API routes
+  app.use("/api/voice", voiceRoutes);
+
+  // Legacy voice API routes (for compatibility)
   app.get("/api/voice/live-token", async (req, res) => {
     if (!req.isAuthenticated()) {
       return res.status(401).json({ message: "Unauthorized" });

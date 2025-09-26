@@ -1,4 +1,5 @@
 import OpenAI from "openai";
+import { LLM_CONFIG, TUTOR_SYSTEM_PROMPT, ensureEndsWithQuestion, splitIntoSentences, getRandomPhrase, ACKNOWLEDGMENT_PHRASES, TRANSITION_PHRASES } from '../llm/systemPrompt';
 
 const openai = new OpenAI({ 
   apiKey: process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY_ENV_VAR || "default_key" 
@@ -13,22 +14,71 @@ interface TutorContext {
 class OpenAIService {
   async generateTutorResponse(message: string, context: TutorContext): Promise<string> {
     try {
-      const systemPrompt = this.buildSystemPrompt(context);
+      // Add variety with random acknowledgment
+      const acknowledgment = getRandomPhrase(ACKNOWLEDGMENT_PHRASES);
+      const systemPrompt = `${TUTOR_SYSTEM_PROMPT}\n\nContext: ${context.lessonId ? `Lesson: ${context.lessonId}` : 'General conversation'}`;
 
-      const response = await openai.chat.completions.create({
-        model: "gpt-4o-mini", // Using gpt-4o-mini as specified in requirements
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: message }
-        ],
-        temperature: 0.7,
-        max_tokens: 500,
-      });
+      let model = LLM_CONFIG.model;
+      try {
+        const response = await openai.chat.completions.create({
+          model,
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: message }
+          ],
+          temperature: LLM_CONFIG.temperature,
+          max_tokens: LLM_CONFIG.maxTokens,
+          top_p: LLM_CONFIG.topP,
+          presence_penalty: LLM_CONFIG.presencePenalty,
+        });
 
-      return response.choices[0].message.content || "I'm sorry, I didn't understand that. Could you please rephrase your question?";
+        let content = response.choices[0].message.content || "I'm sorry, I didn't understand that. Could you please rephrase your question?";
+        
+        // Ensure response ends with question for engagement
+        content = ensureEndsWithQuestion(content);
+        
+        return content;
+      } catch (error: any) {
+        // Fallback to gpt-4o-mini if gpt-4o fails
+        if (error?.error?.code === 'model_not_found' || error?.status === 404) {
+          console.log('Falling back to gpt-4o-mini');
+          const response = await openai.chat.completions.create({
+            model: LLM_CONFIG.fallbackModel,
+            messages: [
+              { role: "system", content: systemPrompt },
+              { role: "user", content: message }
+            ],
+            temperature: LLM_CONFIG.temperature,
+            max_tokens: LLM_CONFIG.maxTokens,
+            top_p: LLM_CONFIG.topP,
+            presence_penalty: LLM_CONFIG.presencePenalty,
+          });
+
+          let content = response.choices[0].message.content || "I'm sorry, I didn't understand that. Could you please rephrase your question?";
+          content = ensureEndsWithQuestion(content);
+          return content;
+        }
+        throw error;
+      }
     } catch (error) {
       console.error("Error generating tutor response:", error);
       throw new Error("Failed to generate response from AI tutor");
+    }
+  }
+
+  // Enhanced voice conversation method with streaming support
+  async generateVoiceResponse(message: string, context: TutorContext): Promise<{ content: string; chunks: string[] }> {
+    try {
+      const content = await this.generateTutorResponse(message, context);
+      const chunks = splitIntoSentences(content);
+      
+      console.log(`[OpenAI] Voice response generated: ${content}`);
+      console.log(`[OpenAI] Split into ${chunks.length} chunks for streaming TTS`);
+      
+      return { content, chunks };
+    } catch (error) {
+      console.error("Error generating voice response:", error);
+      throw new Error("Failed to generate voice response from AI tutor");
     }
   }
 

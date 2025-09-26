@@ -7,21 +7,12 @@ class VoiceService {
   private openai: OpenAI | null = null;
 
   constructor() {
-    // For voice tutoring, we need BOTH OpenAI Realtime API AND Azure Speech
-    // If either is missing, use test mode with browser TTS
+    // Check for OpenAI API and Azure Speech credentials
     const hasOpenAI = !!process.env.OPENAI_API_KEY?.trim();
     const hasAzure = !!process.env.AZURE_SPEECH_KEY?.trim() && !!process.env.AZURE_SPEECH_REGION?.trim();
     
-    // For conversational tutoring, always use test mode with browser TTS
-    // This provides a simpler, more reliable voice experience
-    this.testMode = true; // Force test mode for conversational tutor
-    
-    // Alternative: use real voice APIs only if explicitly enabled
-    // this.testMode = process.env.VOICE_TEST_MODE !== '0' && (
-    //     process.env.VOICE_TEST_MODE === '1' || 
-    //     !hasOpenAI || 
-    //     !hasAzure
-    // );
+    // Use test mode unless explicitly disabled and all services are available
+    this.testMode = process.env.VOICE_TEST_MODE !== '0' || !hasOpenAI || !hasAzure;
     
     console.log(`Voice service init: OpenAI=${hasOpenAI}, Azure=${hasAzure}, TestMode=${this.testMode}`);
     
@@ -32,7 +23,9 @@ class VoiceService {
     }
     
     if (this.testMode) {
-      console.log('Voice service running in TEST MODE - using browser TTS instead of real voice API');
+      console.log('Voice service running in TEST MODE - using browser TTS and simplified conversation logic');
+    } else {
+      console.log('Voice service running in PRODUCTION MODE - using OpenAI + Azure TTS');
     }
   }
 
