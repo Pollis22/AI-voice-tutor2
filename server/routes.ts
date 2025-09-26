@@ -38,12 +38,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Setup authentication
   setupAuth(app);
 
-  // Enhanced voice API routes
-  app.use("/api/voice", voiceRoutes);
+  // Import enhanced routes
+  const enhancedVoiceRoutes = require("./routes/enhancedVoiceRoutes").default;
+  const debugRoutes = require("./routes/debugRoutes").default;
+  
+  // Enhanced voice API routes with comprehensive features
+  app.use("/api/voice", enhancedVoiceRoutes);
   
   // Conversation management routes
   app.use("/api/conversation", conversationRoutes);
   app.use("/api/streaming", streamingRoutes);
+  
+  // Debug routes for monitoring
+  app.use("/api/debug", debugRoutes);
 
   // Legacy voice API routes (for compatibility)
   

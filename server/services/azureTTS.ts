@@ -1,11 +1,11 @@
 import * as sdk from 'microsoft-cognitiveservices-speech-sdk';
-import { generateSSML, getCurrentEnergyLevel, type EnergyLevel } from '../llm/voiceConfig';
+import { generateSSML, splitForStreaming, type EnergyStyle } from '../utils/ssmlGenerator';
 
 export class AzureTTSService {
   private speechConfig: sdk.SpeechConfig;
   private audioConfig: sdk.AudioConfig;
   private synthesizer: sdk.SpeechSynthesizer | null = null;
-  private currentEnergyLevel: EnergyLevel = 'neutral';
+  private currentEnergyLevel: EnergyStyle = 'neutral';
 
   constructor() {
     // Initialize Azure Speech SDK
@@ -24,17 +24,17 @@ export class AzureTTSService {
     
     // Configure audio output for server environment (buffer mode for headless servers)
     this.audioConfig = sdk.AudioConfig.fromDefaultSpeakerOutput(); // Will be overridden in synthesis for buffer mode
-    this.currentEnergyLevel = getCurrentEnergyLevel();
+    this.currentEnergyLevel = (process.env.ENERGY_LEVEL as EnergyStyle) || 'upbeat';
   }
 
   // Set energy level for current session
-  setEnergyLevel(level: EnergyLevel): void {
+  setEnergyLevel(level: EnergyStyle): void {
     this.currentEnergyLevel = level;
     console.log(`[Azure TTS] Energy level set to: ${level}`);
   }
 
   // Synthesize speech with SSML styling
-  async synthesizeSpeech(text: string, energyLevel?: EnergyLevel): Promise<ArrayBuffer> {
+  async synthesizeSpeech(text: string, energyLevel?: EnergyStyle): Promise<ArrayBuffer> {
     const level = energyLevel || this.currentEnergyLevel;
     const ssml = generateSSML(text, level);
     
@@ -68,12 +68,18 @@ export class AzureTTSService {
     });
   }
 
-  // Stream synthesis for faster response (start speaking as soon as first chunk is ready)
-  async streamSpeech(textChunks: string[], energyLevel?: EnergyLevel): Promise<AsyncGenerator<ArrayBuffer>> {
+  // Stream synthesis for faster response with barge-in support
+  async streamSpeech(textChunks: string[], energyLevel?: EnergyStyle, abortSignal?: AbortSignal): Promise<AsyncGenerator<ArrayBuffer>> {
     const level = energyLevel || this.currentEnergyLevel;
     
     return (async function* (this: AzureTTSService) {
       for (const chunk of textChunks) {
+        // Check for barge-in (user interrupted)
+        if (abortSignal?.aborted) {
+          console.log('[Azure TTS] Stream aborted (barge-in detected)');
+          break;
+        }
+        
         try {
           const audioData = await this.synthesizeSpeech(chunk, level);
           yield audioData;
