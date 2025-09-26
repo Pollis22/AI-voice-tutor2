@@ -11,6 +11,7 @@ import { openaiCircuitBreaker } from './circuitBreaker';
 import { userQueueManager } from './userQueueManager';
 import { semanticCache } from './semanticCache';
 import { inputGatingService } from './inputGating';
+import { compareAnswers, normalizeAnswer, mathAnswersEqual, fuzzyTextMatch, normalizeMcqAnswer } from '../utils/answerNormalization';
 
 // Validate and log API key status on startup
 const keyStatus = validateAndLogOpenAIKey();
@@ -824,11 +825,22 @@ Remember: You're not just teaching facts, you're building confidence and curiosi
       return null;
     }
     
-    const userAnswer = userInput.toLowerCase().trim();
-    const expectedAnswer = lastQuestion.expectedAnswer.toLowerCase();
+    // Use advanced answer normalization and comparison
+    const answerType = subject === 'math' ? 'math' : 
+                      /^[a-d]$/i.test(lastQuestion.expectedAnswer.trim()) ? 'mcq' : 'text';
+    
+    const comparisonResult = compareAnswers(userInput, lastQuestion.expectedAnswer, {
+      type: answerType,
+      tolerance: 1e-6
+    });
+    
+    // Log telemetry when DEBUG_TUTOR=1
+    if (process.env.DEBUG_TUTOR === '1') {
+      console.log(`[Answer Check] User: "${comparisonResult.normalizedUser}" vs Expected: "${comparisonResult.normalizedExpected}" | Method: ${comparisonResult.method} | Correct: ${comparisonResult.isCorrect}`);
+    }
     
     // Check if the answer is correct
-    if (userAnswer === expectedAnswer || userAnswer.includes(expectedAnswer)) {
+    if (comparisonResult.isCorrect) {
       // Correct answer - provide positive feedback and next question
       this.lastAskedQuestions.delete(sessionId); // Clear the question
       
@@ -841,22 +853,60 @@ Remember: You're not just teaching facts, you're building confidence and curiosi
       }
       return "Great job! That's the right answer. Let's move on to the next question.";
     } else {
-      // Incorrect answer - provide correction and teaching
+      // Incorrect answer - provide correction and teaching with anti-repetition
       this.lastAskedQuestions.delete(sessionId); // Clear the question
       
-      // Provide specific corrections based on the question
+      // Check for recent corrections to avoid repetition
+      const recentKey = `recent_corrections_${sessionId || 'default'}`;
+      const recentCorrections = this.recentFallbacks.get(recentKey) || [];
+      
+      let correctionResponse = '';
+      
+      // Provide specific corrections based on the question with templated hints
       if (lastQuestion.question.includes("comes after 2")) {
-        return `Not quite - 3 comes after 2. When we count: 1, 2, 3, 4. See how 3 is right after 2? Now you try: What comes after 5?`;
+        const corrections = [
+          `Not quite - 3 comes after 2. When we count: 1, 2, 3, 4. See how 3 is right after 2? Now you try: What comes after 5?`,
+          `Think about counting in order. After 2 comes... 3! Like this: 1, 2, 3. What number comes after 4?`,
+          `Let's count step by step: 1... 2... then 3! So 3 comes after 2. Can you tell me what comes after 6?`
+        ];
+        correctionResponse = this.selectNonRecentResponse(corrections, recentCorrections);
       } else if (lastQuestion.question.includes("2 + 3") || lastQuestion.question.includes("2 plus 3")) {
-        return `Let me help! 2 + 3 = 5. We start with 2 and add 3 more: 2, 3, 4, 5. So the answer is 5. Can you try 3 + 1?`;
+        const corrections = [
+          `Let me help! 2 + 3 = 5. We start with 2 and add 3 more: 2, 3, 4, 5. So the answer is 5. Can you try 3 + 1?`,
+          `Addition means combining! 2 + 3 means put 2 and 3 together to get 5. What's 1 + 4?`,
+          `Let's count it out: Start at 2, then count 3 more... 3, 4, 5! So 2 + 3 = 5. Try 4 + 1!`
+        ];
+        correctionResponse = this.selectNonRecentResponse(corrections, recentCorrections);
       } else if (lastQuestion.question.includes("count from 1 to 5")) {
-        return `Good try! Let's count together: 1, 2, 3, 4, 5. Notice how we say each number in order. Can you try counting from 1 to 3?`;
+        const corrections = [
+          `Good try! Let's count together: 1, 2, 3, 4, 5. Notice how we say each number in order. Can you try counting from 1 to 3?`,
+          `Counting is fun! Here's how: 1... 2... 3... 4... 5! Each number comes next in order. Count from 6 to 8!`,
+          `Let's practice: 1 is first, then 2, then 3, then 4, then 5! Try counting from 2 to 4!`
+        ];
+        correctionResponse = this.selectNonRecentResponse(corrections, recentCorrections);
       } else if (lastQuestion.question.includes("4 + 2")) {
-        return `Let's work it out: 4 + 2 = 6. Start at 4 and count 2 more: 5, 6. The answer is 6! Now try: What's 2 + 2?`;
+        const corrections = [
+          `Let's work it out: 4 + 2 = 6. Start at 4 and count 2 more: 5, 6. The answer is 6! Now try: What's 2 + 2?`,
+          `Addition time! 4 + 2 means 4 plus 2 more makes 6. Can you solve 3 + 3?`,
+          `Think: 4 cookies plus 2 more cookies equals 6 cookies total! What's 5 + 1?`
+        ];
+        correctionResponse = this.selectNonRecentResponse(corrections, recentCorrections);
       }
       
-      // Generic correction for other questions
-      return `That's not quite right. The answer is ${lastQuestion.expectedAnswer}. Let me explain why, then we'll try another one. Ready?`;
+      // Generic correction with variety if no specific correction found
+      if (!correctionResponse) {
+        const genericCorrections = [
+          `That's not quite right. The answer is ${lastQuestion.expectedAnswer}. Let me explain why, then we'll try another one. Ready?`,
+          `Good effort! The correct answer is ${lastQuestion.expectedAnswer}. Here's why that works. Shall we practice more?`,
+          `Nice try! Actually, it's ${lastQuestion.expectedAnswer}. Let me show you the thinking behind it. Want to try again?`
+        ];
+        correctionResponse = this.selectNonRecentResponse(genericCorrections, recentCorrections);
+      }
+      
+      // Track this correction to avoid repetition
+      this.trackRecentFallback(recentKey, correctionResponse);
+      
+      return correctionResponse;
     }
   }
   
@@ -938,6 +988,16 @@ Remember: You're not just teaching facts, you're building confidence and curiosi
       recent.shift();
     }
     this.recentFallbacks.set(key, recent);
+  }
+  
+  // Select a response not recently used for anti-repetition
+  private selectNonRecentResponse(responses: string[], recentResponses: string[]): string {
+    const availableResponses = responses.filter(r => !recentResponses.includes(r));
+    if (availableResponses.length > 0) {
+      return availableResponses[Math.floor(Math.random() * availableResponses.length)];
+    }
+    // If all were recently used, pick randomly
+    return responses[Math.floor(Math.random() * responses.length)];
   }
   
   // Generate contextual responses based on user input
