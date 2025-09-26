@@ -18,6 +18,8 @@ interface ConversationMessage {
   type: 'user' | 'tutor';
   content: string;
   timestamp: number;
+  usedFallback?: boolean;
+  banner?: string;
 }
 
 export function useVoice() {
@@ -28,6 +30,7 @@ export function useVoice() {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [sessionStartTime, setSessionStartTime] = useState<number | null>(null);
   const [conversationHistory, setConversationHistory] = useState<ConversationMessage[]>([]);
+  const [activeBanner, setActiveBanner] = useState<string | null>(null);
   
   const { toast } = useToast();
   const realtimeConnectionRef = useRef<any>(null);
@@ -128,6 +131,17 @@ export function useVoice() {
             });
             
             const data = await response.json();
+            
+            // Handle banner for API issues
+            if (data.banner && data.usedFallback) {
+              setActiveBanner(data.banner);
+              // Clear banner after 5 seconds
+              setTimeout(() => setActiveBanner(null), 5000);
+            } else if (activeBanner && !data.usedFallback) {
+              // Clear banner if API is working again
+              setActiveBanner(null);
+            }
+            
             return data.content || "I'm here to help you learn! What would you like to explore?";
           } catch (error) {
             console.error('[Voice] Error generating AI response:', error);
@@ -552,6 +566,7 @@ export function useVoice() {
     error,
     sessionId,
     conversationHistory,
+    activeBanner,
     startVoiceSession,
     endVoiceSession: endVoiceSession,
     muteAudio,

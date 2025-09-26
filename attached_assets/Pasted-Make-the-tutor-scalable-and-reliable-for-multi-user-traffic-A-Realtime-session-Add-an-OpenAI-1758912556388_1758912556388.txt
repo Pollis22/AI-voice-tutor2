@@ -1,0 +1,53 @@
+Make the tutor scalable and reliable for multi-user traffic.
+
+A) Realtime session
+- Add an OpenAI Realtime client (WebRTC/WebSocket) and use a single long-lived session per user instead of multiple REST calls.
+- Keep REST path as fallback behind a feature flag: USE_REALTIME=true (default).
+
+B) Input gating & debouncing
+- Only enqueue a user turn when:
+  - text.trim().length > 0, OR
+  - (asr.durationMs >= ASR_MIN_MS AND asr.confidence >= ASR_MIN_CONFIDENCE)
+- Defaults: ASR_MIN_MS=350, ASR_MIN_CONFIDENCE=0.5.
+- Debounce partial transcripts; commit only on end-of-speech.
+
+C) Per-user queue & cancellation
+- Add a lightweight queue with concurrency=1 per session.
+- If a new utterance arrives while one is running, cancel/abort the in-flight turn and process the latest (barge-in).
+- Ensure exactly one LLM call per user turn.
+
+D) Backoff + circuit breaker
+- On 429/5xx: exponential backoff 250ms, 500ms, 1s, 2s (max 4 tries).
+- If still failing, open a circuit for 45s (no LLM calls in that window) and serve lesson-specific fallbacks.
+- Show a small banner: “High traffic—using quick tips.”
+
+E) Lesson grounding + cache
+- Implement a semantic cache:
+  - Key: `${lessonId}:${hash(embedding(questionNormalized))}`
+  - Store assistant text + citations for 24h with LRU eviction.
+- On cache hit, return immediately; on miss, call model and populate cache.
+- Ensure every turn includes the current lesson context and topic guard.
+
+F) Precomputed scaffolds
+- For each lesson step, precompute: definition, example, hint, check-question; store in content metadata.
+- If circuit is open or cache miss + model down, use these scaffolds to keep flow moving.
+
+G) Env + flags
+- USE_REALTIME=true|false
+- ASR_MIN_MS=350
+- ASR_MIN_CONFIDENCE=0.5
+- CACHE_TTL_MIN=1440
+- CIRCUIT_COOLDOWN_MS=45000
+
+H) Observability
+- When DEBUG_TUTOR=1, log per turn:
+  {lessonId, usedRealtime, queueDepth, retryCount, breakerOpen, usedCache, tokens, latencyMs}.
+- Add /api/debug/last-turns (auth-gated) to view last 50 summaries.
+
+I) Tests
+- Simulate 3 concurrent users:
+  1) Verify only one active LLM call per user (queueDepth <= 1).
+  2) Induce 429 → backoff then circuit opens → fallback is lesson-specific.
+  3) Ask a repeated question → semantic cache hit → response < 100ms.
+
+Deliverables: Updated dialog engine (realtime path + queue), caching layer, circuit breaker, lesson-grounded fallbacks, and docs in README with new env vars.
