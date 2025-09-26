@@ -33,6 +33,7 @@ interface EnhancedTutorResponse {
   retryCount?: number;
   tokensUsed?: number;
   model?: string;
+  banner?: string;
 }
 
 class OpenAIService {
@@ -133,16 +134,17 @@ Response rules:
       // Handle retry result
       if (retryResult.usedFallback || !retryResult.result) {
         const subject = context.lessonContext?.subject || 'general';
-        const fallbackContent = this.getLessonSpecificFallback(subject);
+        const fallbackResult = this.getLessonSpecificFallback(subject, message, context.sessionId);
         
         const response: EnhancedTutorResponse = {
-          content: fallbackContent,
+          content: fallbackResult.content,
           topic: topicClassification.topic,
           repairMove: false,
           usedFallback: true,
           retryCount: retryResult.retryCount,
           tokensUsed: 0,
-          model
+          model,
+          banner: fallbackResult.banner
         };
         
         this.logDebugInfo({
@@ -222,18 +224,19 @@ Response rules:
       
       // Return fallback response for any unexpected error
       const subject = context.lessonContext?.subject || 'general';
-      const fallbackContent = this.getLessonSpecificFallback(subject);
+      const fallbackResult = this.getLessonSpecificFallback(subject, message, context.sessionId);
       
       const topicClassification = topicRouter.classifyTopic(message);
       
       const fallbackResponse: EnhancedTutorResponse = {
-        content: fallbackContent,
+        content: fallbackResult.content,
         topic: topicClassification.topic || 'general',
         repairMove: false,
         usedFallback: true,
         retryCount: 0,
         tokensUsed: 0,
-        model
+        model,
+        banner: fallbackResult.banner
       };
       
       this.logDebugInfo({
@@ -403,40 +406,137 @@ Key guidelines:
 Remember: You're not just teaching facts, you're building confidence and curiosity!`;
   }
   
-  private getLessonSpecificFallback(subject: string): string {
+  // Enhanced fallback with conversation context
+  private getLessonSpecificFallback(subject: string, userInput?: string, sessionId?: string): { content: string; banner?: string } {
+    // Check for recent fallbacks to avoid repetition
+    const recentKey = `recent_fallbacks_${sessionId || 'default'}`;
+    const recentFallbacks = this.recentFallbacks.get(recentKey) || [];
+    
+    // Contextual responses based on user input
+    const contextualResponses = this.getContextualResponse(userInput, subject);
+    if (contextualResponses.length > 0) {
+      const availableResponses = contextualResponses.filter(r => !recentFallbacks.includes(r));
+      if (availableResponses.length > 0) {
+        const selected = availableResponses[Math.floor(Math.random() * availableResponses.length)];
+        this.trackRecentFallback(recentKey, selected);
+        return {
+          content: selected,
+          banner: "I'm having trouble connecting to my AI assistant right now, but I can still help you learn!"
+        };
+      }
+    }
+    
+    // Standard fallbacks with variety
     const fallbacks: Record<string, string[]> = {
       math: [
-        "Let's work through this step by step. What number comes after 2?",
-        "Good thinking! Can you count from 1 to 5 for me?",
-        "That's a great question about numbers! How many fingers do you have on one hand?",
-        "Let's practice counting together. Can you show me three fingers?",
-        "Excellent effort with math! What's 1 plus 1?"
+        "I understand you're working on numbers! Let's try a simple counting question - what comes after 3?",
+        "Math can be fun! Can you tell me what 2 plus 1 equals?",
+        "Numbers are everywhere! How many wheels does a car have?",
+        "Let's practice with shapes - can you think of something that's round?",
+        "Counting is important! Can you count to 10 for me?"
       ],
       english: [
-        "Let's explore words together! Can you tell me a word that names something?",
-        "Good effort! What's your favorite word that describes an action?",
-        "Let's think about sentences. Can you make a simple sentence with the word 'cat'?",
-        "Great question! Can you think of a word that rhymes with 'bat'?",
-        "Nice work with English! What letter does your name start with?"
+        "Words are powerful! Can you name an animal that starts with 'C'?",
+        "Reading helps us learn! What's your favorite book or story?",
+        "Let's work with letters - can you spell your first name?",
+        "Sentences have parts! Can you make a sentence using the word 'happy'?",
+        "Language is fun! What's a word that describes something big?"
       ],
       spanish: [
-        "¡Muy bien! Can you say 'hola' for me?",
-        "Good try! Do you know how to say 'thank you' in Spanish?",
-        "Let's practice greetings! How would you say 'good morning'?",
-        "Excellent! Can you count from uno to tres in Spanish?",
-        "¡Fantástico! What color is 'rojo' in English?"
+        "¡Hola! Spanish is beautiful! Can you say 'buenos días' (good morning)?",
+        "Let's practice! How do you say 'cat' in Spanish? (It's 'gato')",
+        "Colors in Spanish are fun! Do you know what 'azul' means?",
+        "Numbers in Spanish! Can you try saying 'cinco' (five)?",
+        "¡Muy bien! What does '¿Cómo estás?' mean in English?"
       ],
       general: [
-        "Let's explore this topic together! What would you like to learn first?",
-        "That's interesting! Can you tell me what you already know about this?",
-        "Good question! Let's start with the basics. What part interests you most?",
-        "I'm here to help you learn! What specific area should we focus on?",
-        "Great thinking! What made you curious about this topic?"
+        "I hear what you're saying! Let's explore this step by step - what interests you most?",
+        "That's a great point! Can you tell me more about what you're thinking?",
+        "Learning together is wonderful! What would you like to discover next?",
+        "I'm here to help! What specific question do you have?",
+        "Every question helps us learn! What's one thing you're curious about?"
       ]
     };
     
     const responses = fallbacks[subject] || fallbacks.general;
-    return responses[Math.floor(Math.random() * responses.length)];
+    const availableResponses = responses.filter(r => !recentFallbacks.includes(r));
+    
+    // If all responses were used recently, reset the tracking
+    let selectedResponse: string;
+    if (availableResponses.length === 0) {
+      this.recentFallbacks.set(recentKey, []);
+      selectedResponse = responses[Math.floor(Math.random() * responses.length)];
+    } else {
+      selectedResponse = availableResponses[Math.floor(Math.random() * availableResponses.length)];
+    }
+    
+    this.trackRecentFallback(recentKey, selectedResponse);
+    
+    return {
+      content: selectedResponse,
+      banner: "I'm experiencing connection issues but can still help you learn!"
+    };
+  }
+  
+  // Track recent fallbacks to avoid repetition
+  private recentFallbacks = new Map<string, string[]>();
+  
+  private trackRecentFallback(key: string, response: string) {
+    const recent = this.recentFallbacks.get(key) || [];
+    recent.push(response);
+    // Keep only last 3 responses
+    if (recent.length > 3) {
+      recent.shift();
+    }
+    this.recentFallbacks.set(key, recent);
+  }
+  
+  // Generate contextual responses based on user input
+  private getContextualResponse(userInput: string = '', subject: string): string[] {
+    const input = userInput.toLowerCase();
+    
+    // Number-related responses
+    if (input.match(/\d/) || input.includes('count') || input.includes('number')) {
+      return [
+        "I see you mentioned numbers! What's your favorite number and why?",
+        "Numbers are useful! Can you count how many fingers you're holding up?",
+        "Math is everywhere! What number comes next in this pattern: 1, 2, 3, ?"
+      ];
+    }
+    
+    // Question words
+    if (input.includes('what') || input.includes('why') || input.includes('how')) {
+      return [
+        "That's a thoughtful question! Let me help you think through it step by step.",
+        "Great question! Let's explore that together - what do you think might be the answer?",
+        "I love when you ask questions! What's the first thing that comes to mind?"
+      ];
+    }
+    
+    // Positive responses
+    if (input.includes('yes') || input.includes('ok') || input.includes('sure')) {
+      return [
+        "Wonderful! Let's keep going - what should we try next?",
+        "Great! You're doing well. What's another way we could approach this?",
+        "Perfect! Now let's build on that - can you think of a similar example?"
+      ];
+    }
+    
+    // Confusion or difficulty
+    if (input.includes('no') || input.includes('don\'t') || input.includes('hard') || input.includes('difficult')) {
+      return [
+        "That's okay! Learning takes time. Let's try something easier first.",
+        "No worries! Let's break this down into smaller steps.",
+        "It's fine to find things challenging! What part would you like help with?"
+      ];
+    }
+    
+    // Default contextual responses
+    return [
+      "I can see you're thinking about this! What's your next idea?",
+      "Let's keep exploring! What interests you most about this topic?",
+      "You're doing great! What would you like to try next?"
+    ];
   }
 }
 

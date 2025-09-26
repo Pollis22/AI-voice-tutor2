@@ -104,7 +104,10 @@ router.post('/generate-response', async (req, res) => {
           testMode: false,
           energyLevel: effectiveEnergyLevel,
           topic: enhancedResponse.topic,
-          repairMove: enhancedResponse.repairMove
+          repairMove: enhancedResponse.repairMove,
+          usedFallback: enhancedResponse.usedFallback,
+          banner: enhancedResponse.banner,
+          retryCount: enhancedResponse.retryCount
         });
       } catch (error) {
         console.error('[Voice API] Azure TTS failed, falling back to test mode:', error);
@@ -141,7 +144,10 @@ router.post('/generate-response', async (req, res) => {
       testMode: true,
       energyLevel: effectiveEnergyLevel,
       topic: enhancedResponse.topic,
-      repairMove: enhancedResponse.repairMove
+      repairMove: enhancedResponse.repairMove,
+      usedFallback: enhancedResponse.usedFallback,
+      banner: enhancedResponse.banner,
+      retryCount: enhancedResponse.retryCount
     });
 
   } catch (error) {
