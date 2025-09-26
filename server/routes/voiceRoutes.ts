@@ -26,7 +26,10 @@ router.post('/generate-response', async (req, res) => {
     const gatingResult = inputGatingService.validate({
       message: message || '',
       speechDuration: speechDuration,
-      speechConfidence: speechConfidence
+      speechConfidence: speechConfidence,
+      sessionId: effectiveSessionId,
+      endOfSpeech: true,
+      timestamp: Date.now()
     });
     
     if (gatingResult.shouldGate) {
@@ -34,12 +37,12 @@ router.post('/generate-response', async (req, res) => {
       return res.status(400).json({ 
         error: gatingResult.reason,
         gated: true,
-        reason: gatingResult.category
+        reason: gatingResult.reason
       });
     }
     
     // Use the normalized input from gating service
-    const normalizedInput = gatingResult.normalizedInput;
+    const normalizedInput = gatingResult.normalizedInput || message || '';
     
     // Get energy level from request body, session, or default to environment/upbeat
     const effectiveEnergyLevel = energyLevel || (req.session as any).energyLevel || process.env.ENERGY_LEVEL || 'upbeat';
@@ -52,7 +55,7 @@ router.post('/generate-response', async (req, res) => {
     // Enqueue the voice response generation to ensure exactly ONE LLM call per user turn
     const result = await userQueue.enqueue(async () => {
       // Generate enhanced AI response with conversation management
-      const enhancedResponse = await openaiService.generateEnhancedTutorResponse(normalizedInput, {
+      const enhancedResponse = await openaiService.generateEnhancedTutorResponse(normalizedInput || message || '', {
         userId,
         lessonId: lessonId || 'general',
         sessionId: effectiveSessionId,

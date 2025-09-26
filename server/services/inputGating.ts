@@ -3,6 +3,13 @@ interface InputValidationResult {
   reason?: string;
   shouldGate: boolean;
   normalizedInput?: string;
+  vadSilenceDetected?: boolean;
+  gatingMetadata?: {
+    duration?: number;
+    confidence?: number;
+    profile?: string;
+    endOfSpeech?: boolean;
+  };
 }
 
 interface GatingMetrics {
@@ -22,19 +29,54 @@ export class InputGatingService {
     reasonCounts: {}
   };
 
-  // Reduced thresholds for better responsiveness
-  private readonly minDurationMs = parseInt(process.env.ASR_MIN_MS || '150');  // Reduced from 350ms
-  private readonly minConfidence = parseFloat(process.env.ASR_MIN_CONFIDENCE || '0.3');  // Reduced from 0.5
+  // ASR Profile Configuration
+  private readonly asrProfiles = {
+    strict: { minDurationMs: 300, minConfidence: 0.6 },
+    balanced: { minDurationMs: 250, minConfidence: 0.5 },
+    aggressive: { minDurationMs: 150, minConfidence: 0.3 }
+  };
+
+  // Environment-based configuration with profile support
+  private readonly vadSilenceMs = parseInt(process.env.VAD_SILENCE_MS || '300');
+  private readonly maxUtteranceMs = parseInt(process.env.MAX_UTTERANCE_MS || '8000');
+  private readonly asrProfile = (process.env.ASR_PROFILE as 'strict'|'balanced'|'aggressive') || 'balanced';
+  
+  private readonly minDurationMs = parseInt(process.env.ASR_MIN_MS || this.asrProfiles[this.asrProfile].minDurationMs.toString());
+  private readonly minConfidence = parseFloat(process.env.ASR_MIN_CONFIDENCE || this.asrProfiles[this.asrProfile].minConfidence.toString());
+
+  // VAD state tracking for silence detection
+  private vadState: Map<string, { lastSpeechTime: number; silenceStartTime?: number }> = new Map();
 
   validate(input: {
     message?: string;
     speechDuration?: number;
     speechConfidence?: number;
     timestamp?: number;
+    sessionId?: string;
+    endOfSpeech?: boolean;
   }): InputValidationResult {
     this.metrics.totalInputs++;
 
-    const { message, speechDuration, speechConfidence } = input;
+    const { message, speechDuration, speechConfidence, sessionId = 'default', endOfSpeech = false } = input;
+    
+    // VAD Silence Detection - only commit utterance on end-of-speech
+    const vadSilenceDetected = this.detectVadSilence(sessionId, endOfSpeech, input.timestamp);
+    
+    // Only process if we have end-of-speech or sufficient silence detected
+    if (!endOfSpeech && !vadSilenceDetected) {
+      return {
+        isValid: false,
+        shouldGate: true,
+        reason: 'Waiting for end-of-speech or VAD silence detection',
+        vadSilenceDetected: false,
+        gatingMetadata: {
+          duration: speechDuration,
+          confidence: speechConfidence,
+          profile: this.asrProfile,
+          endOfSpeech
+        }
+      };
+    }
     
     // Clean and normalize the message
     const trimmedMessage = message?.trim() || '';
@@ -45,6 +87,23 @@ export class InputGatingService {
     const hasValidSpeech = speechDuration !== undefined && speechConfidence !== undefined &&
                            speechDuration >= this.minDurationMs && speechConfidence >= this.minConfidence;
 
+    // Check utterance length limits
+    if (speechDuration && speechDuration > this.maxUtteranceMs) {
+      this.recordGating('utterance_too_long');
+      return {
+        isValid: false,
+        shouldGate: true,
+        reason: `Utterance too long: ${speechDuration}ms > ${this.maxUtteranceMs}ms`,
+        vadSilenceDetected,
+        gatingMetadata: {
+          duration: speechDuration,
+          confidence: speechConfidence,
+          profile: this.asrProfile,
+          endOfSpeech
+        }
+      };
+    }
+
     // Must satisfy at least one condition
     if (!hasValidText && !hasValidSpeech) {
       // Determine the specific reason for gating
@@ -53,7 +112,14 @@ export class InputGatingService {
         return {
           isValid: false,
           shouldGate: true,
-          reason: 'Empty text input'
+          reason: 'Empty text input',
+          vadSilenceDetected,
+          gatingMetadata: {
+            duration: speechDuration,
+            confidence: speechConfidence,
+            profile: this.asrProfile,
+            endOfSpeech
+          }
         };
       }
       
@@ -62,7 +128,14 @@ export class InputGatingService {
         return {
           isValid: false,
           shouldGate: true,
-          reason: `Speech too short: ${speechDuration}ms < ${this.minDurationMs}ms`
+          reason: `Speech too short: ${speechDuration}ms < ${this.minDurationMs}ms`,
+          vadSilenceDetected,
+          gatingMetadata: {
+            duration: speechDuration,
+            confidence: speechConfidence,
+            profile: this.asrProfile,
+            endOfSpeech
+          }
         };
       }
       
@@ -71,7 +144,14 @@ export class InputGatingService {
         return {
           isValid: false,
           shouldGate: true,
-          reason: `Low confidence: ${speechConfidence} < ${this.minConfidence}`
+          reason: `Low confidence: ${speechConfidence} < ${this.minConfidence}`,
+          vadSilenceDetected,
+          gatingMetadata: {
+            duration: speechDuration,
+            confidence: speechConfidence,
+            profile: this.asrProfile,
+            endOfSpeech
+          }
         };
       }
       
@@ -79,7 +159,14 @@ export class InputGatingService {
       return {
         isValid: false,
         shouldGate: true,
-        reason: 'Insufficient input quality'
+        reason: 'Insufficient input quality',
+        vadSilenceDetected,
+        gatingMetadata: {
+          duration: speechDuration,
+          confidence: speechConfidence,
+          profile: this.asrProfile,
+          endOfSpeech
+        }
       };
     }
 
@@ -91,7 +178,14 @@ export class InputGatingService {
       return {
         isValid: false,
         shouldGate: true,
-        reason: 'Input appears to be gibberish or non-meaningful'
+        reason: 'Input appears to be gibberish or non-meaningful',
+        vadSilenceDetected,
+        gatingMetadata: {
+          duration: speechDuration,
+          confidence: speechConfidence,
+          profile: this.asrProfile,
+          endOfSpeech
+        }
       };
     }
 
@@ -101,7 +195,14 @@ export class InputGatingService {
       return {
         isValid: false,
         shouldGate: true,
-        reason: 'Input is repetitive or identical to recent input'
+        reason: 'Input is repetitive or identical to recent input',
+        vadSilenceDetected,
+        gatingMetadata: {
+          duration: speechDuration,
+          confidence: speechConfidence,
+          profile: this.asrProfile,
+          endOfSpeech
+        }
       };
     }
 
@@ -112,7 +213,14 @@ export class InputGatingService {
     return {
       isValid: true,
       shouldGate: false,
-      normalizedInput: normalizedInput || `[speech:${speechDuration}ms,conf:${speechConfidence}]`
+      normalizedInput: normalizedInput || `[speech:${speechDuration}ms,conf:${speechConfidence}]`,
+      vadSilenceDetected,
+      gatingMetadata: {
+        duration: speechDuration,
+        confidence: speechConfidence,
+        profile: this.asrProfile,
+        endOfSpeech
+      }
     };
   }
 
@@ -210,6 +318,67 @@ export class InputGatingService {
     }
     
     console.log(`[InputGating] Thresholds adjusted - duration: ${(this as any).minDurationMs}ms, confidence: ${(this as any).minConfidence}`);
+  }
+
+  // VAD Silence Detection - tracks silence periods to detect end-of-speech
+  private detectVadSilence(sessionId: string, endOfSpeech: boolean, timestamp?: number): boolean {
+    const now = timestamp || Date.now();
+    const vadKey = `vad_${sessionId}`;
+    
+    let vadState = this.vadState.get(vadKey);
+    if (!vadState) {
+      vadState = { lastSpeechTime: now };
+      this.vadState.set(vadKey, vadState);
+    }
+
+    // If explicitly marked as end of speech, return true
+    if (endOfSpeech) {
+      vadState.lastSpeechTime = now;
+      vadState.silenceStartTime = undefined;
+      return true;
+    }
+
+    // If we detect speech, reset silence timer
+    if (timestamp && timestamp > vadState.lastSpeechTime) {
+      vadState.lastSpeechTime = timestamp;
+      vadState.silenceStartTime = undefined;
+      return false;
+    }
+
+    // If we haven't started tracking silence, start now
+    if (!vadState.silenceStartTime) {
+      vadState.silenceStartTime = now;
+      return false;
+    }
+
+    // Check if silence duration exceeds threshold
+    const silenceDuration = now - vadState.silenceStartTime;
+    return silenceDuration >= this.vadSilenceMs;
+  }
+
+  // Get current ASR profile configuration
+  getCurrentProfile(): { profile: string; minDurationMs: number; minConfidence: number; vadSilenceMs: number; maxUtteranceMs: number } {
+    return {
+      profile: this.asrProfile,
+      minDurationMs: this.minDurationMs,
+      minConfidence: this.minConfidence,
+      vadSilenceMs: this.vadSilenceMs,
+      maxUtteranceMs: this.maxUtteranceMs
+    };
+  }
+
+  // Debug information for live ASR HUD
+  getDebugInfo(sessionId: string): { vadState?: any; profile: string; thresholds: any } {
+    return {
+      vadState: this.vadState.get(`vad_${sessionId}`),
+      profile: this.asrProfile,
+      thresholds: {
+        minDurationMs: this.minDurationMs,
+        minConfidence: this.minConfidence,
+        vadSilenceMs: this.vadSilenceMs,
+        maxUtteranceMs: this.maxUtteranceMs
+      }
+    };
   }
 }
 
