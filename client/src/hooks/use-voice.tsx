@@ -119,7 +119,7 @@ export function useVoice() {
               message: userInput,
               lessonId: lessonId || 'general',
               sessionId: sessionId,
-              energyLevel: 'upbeat' // Default energy level
+              // Energy level will be determined by server from session or defaults
             });
             
             const data = await response.json();

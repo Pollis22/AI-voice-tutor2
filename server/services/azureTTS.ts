@@ -22,7 +22,8 @@ export class AzureTTSService {
     // Set default voice
     this.speechConfig.speechSynthesisVoiceName = process.env.AZURE_VOICE_NAME || 'en-US-EmmaMultilingualNeural';
     
-    this.audioConfig = sdk.AudioConfig.fromDefaultSpeakerOutput();
+    // Configure audio output for server environment (buffer mode for headless servers)
+    this.audioConfig = sdk.AudioConfig.fromDefaultSpeakerOutput(); // Will be overridden in synthesis for buffer mode
     this.currentEnergyLevel = getCurrentEnergyLevel();
   }
 
@@ -41,7 +42,8 @@ export class AzureTTSService {
     console.log(`[Azure TTS] SSML:`, ssml);
 
     return new Promise((resolve, reject) => {
-      this.synthesizer = new sdk.SpeechSynthesizer(this.speechConfig, this.audioConfig);
+      // Use no audio config for buffer-based synthesis on server
+      this.synthesizer = new sdk.SpeechSynthesizer(this.speechConfig, undefined);
       
       this.synthesizer.speakSsmlAsync(
         ssml,

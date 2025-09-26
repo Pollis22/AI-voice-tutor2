@@ -10,6 +10,9 @@ const router = express.Router();
 router.post('/generate-response', async (req, res) => {
   try {
     const { message, lessonId, sessionId, energyLevel } = req.body;
+  
+  // Get energy level from request body, session, or default to environment/neutral
+  const effectiveEnergyLevel = energyLevel || (req.session as any).energyLevel || process.env.VOICE_ENERGY_LEVEL || 'neutral';
     const userId = req.user?.id || 'anonymous';
 
     console.log(`[Voice API] Generating response for user: ${userId}, lesson: ${lessonId}`);
@@ -28,9 +31,8 @@ router.post('/generate-response', async (req, res) => {
         const audioChunks: string[] = [];
         
         // Set energy level if provided
-        if (energyLevel) {
-          azureTTS.setEnergyLevel(energyLevel as EnergyLevel);
-        }
+        // Set Azure TTS energy level for synthesis
+        azureTTS.setEnergyLevel(effectiveEnergyLevel as EnergyLevel);
 
         // Generate audio for each chunk (for streaming TTS)
         for (const chunk of chunks) {

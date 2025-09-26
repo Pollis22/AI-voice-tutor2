@@ -34,6 +34,11 @@ class OpenAIService {
 
         let content = response.choices[0].message.content || "I'm sorry, I didn't understand that. Could you please rephrase your question?";
         
+        // Add variety with random acknowledgment and transition phrases
+        if (Math.random() < 0.6) { // 60% chance to add acknowledgment
+          content = `${acknowledgment} ${content}`;
+        }
+        
         // Ensure response ends with question for engagement
         content = ensureEndsWithQuestion(content);
         
@@ -55,6 +60,12 @@ class OpenAIService {
           });
 
           let content = response.choices[0].message.content || "I'm sorry, I didn't understand that. Could you please rephrase your question?";
+          
+          // Add variety with random acknowledgment in fallback too
+          if (Math.random() < 0.6) { // 60% chance to add acknowledgment
+            content = `${acknowledgment} ${content}`;
+          }
+          
           content = ensureEndsWithQuestion(content);
           return content;
         }
