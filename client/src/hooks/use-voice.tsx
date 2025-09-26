@@ -214,6 +214,19 @@ export function useVoice() {
           const trimmedTranscript = transcript?.trim() || '';
           if (!trimmedTranscript || trimmedTranscript.length < 2) {
             console.log('[Voice] Ignoring empty or too short input:', transcript);
+            
+            // Update debug HUD with rejection reason
+            if ((window as any).updateAsrDebugHud) {
+              (window as any).updateAsrDebugHud({
+                duration,
+                confidence,
+                passed: false,
+                profile: 'browser-asr',
+                vadSilence: false,
+                endOfSpeech: true,
+                reason: 'Input too short or empty'
+              });
+            }
             return;
           }
           
@@ -226,6 +239,19 @@ export function useVoice() {
             timestamp: Date.now()
           }]);
           
+          // Update ASR debug HUD with speech recognition data
+          if ((window as any).updateAsrDebugHud) {
+            (window as any).updateAsrDebugHud({
+              duration,
+              confidence,
+              passed: true, // Made it through initial validation
+              profile: 'browser-asr',
+              vadSilence: false,
+              endOfSpeech: true,
+              reason: 'Speech recognition successful'
+            });
+          }
+
           // Generate AI response with speech metrics
           const aiResponse = await generateAIResponse(transcript, duration, confidence);
           console.log('[Voice] AI response:', aiResponse);

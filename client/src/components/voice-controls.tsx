@@ -4,6 +4,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { useVoice } from "@/hooks/use-voice";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { AsrDebugHud } from "@/components/asr-debug-hud";
 
 interface VoiceControlsProps {
   lessonId: string;
@@ -53,8 +54,10 @@ export function VoiceControls({ lessonId }: VoiceControlsProps) {
   };
 
   return (
-    <Card className="shadow-sm">
-      <CardContent className="pt-6">
+    <>
+      <AsrDebugHud isActive={isActive} />
+      <Card className="shadow-sm">
+        <CardContent className="pt-6">
         <div className="text-center">
           {!isActive ? (
             <div className="space-y-4" data-testid="voice-inactive">
@@ -193,7 +196,8 @@ export function VoiceControls({ lessonId }: VoiceControlsProps) {
             </div>
           )}
         </div>
-      </CardContent>
-    </Card>
+        </CardContent>
+      </Card>
+    </>
   );
 }
