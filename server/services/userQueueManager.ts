@@ -59,7 +59,7 @@ export class UserQueue extends EventEmitter {
     });
   }
 
-  private cancelPendingOperations(): void {
+  cancelPendingOperations(): void {
     const pendingItems = this.queue.filter(item => !item.aborted);
     
     for (const item of pendingItems) {
@@ -208,6 +208,14 @@ class UserQueueManager {
       maxQueueDepth: Math.max(...currentQueueDepths, 0),
       avgQueueDepth: activeSessions > 0 ? totalQueueDepth / activeSessions : 0
     };
+  }
+
+  cancelInFlightForSession(sessionId: string): void {
+    const queue = this.queues.get(sessionId);
+    if (queue) {
+      queue.cancelPendingOperations();
+      console.log(`[UserQueueManager] Cancelled in-flight operations for session ${sessionId}`);
+    }
   }
 
   cleanup(): void {
