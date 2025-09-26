@@ -1,0 +1,22 @@
+{
+  "name": "ai-tutor-concurrent-tests",
+  "version": "1.0.0",
+  "description": "Concurrent user testing scripts for AI Tutor scalability validation",
+  "main": "test-concurrent-users.js",
+  "scripts": {
+    "test:concurrent": "node test-concurrent-users.js",
+    "test:stress": "node test-stress-load.js",
+    "test:health": "node test-health-check.js"
+  },
+  "dependencies": {
+    "node-fetch": "^2.6.7"
+  },
+  "keywords": [
+    "testing",
+    "scalability",
+    "concurrent",
+    "ai-tutor"
+  ],
+  "author": "AI Tutor Team",
+  "license": "MIT"
+}

@@ -6,6 +6,7 @@ import { getCurrentEnergyLevel, type EnergyLevel } from '../llm/voiceConfig';
 import { telemetryManager } from '../services/sessionTelemetry';
 import { conversationManager } from '../services/conversationManager';
 import { userQueueManager } from '../services/userQueueManager';
+import { inputGatingService } from '../services/inputGating';
 
 const router = express.Router();
 
@@ -21,34 +22,28 @@ router.post('/generate-response', async (req, res) => {
     // Cancel any in-flight operations for this session (barge-in)
     userQueueManager.cancelInFlightForSession(effectiveSessionId);
     
-    // TURN GATING: Validate actual user input
-    const trimmedMessage = message?.trim() || '';
-    const duration = speechDuration || 0;
-    const confidence = speechConfidence || 0;
+    // TURN GATING: Use proper input gating service that implements OR logic (text OR sufficient ASR)
+    const gatingResult = inputGatingService.validate(message || '', {
+      duration: speechDuration,
+      confidence: speechConfidence
+    });
     
-    // Check if input meets thresholds
-    const minDuration = parseInt(process.env.ASR_MIN_MS || "350");
-    const minConfidence = parseFloat(process.env.ASR_MIN_CONFIDENCE || "0.5");
-    
-    if (!trimmedMessage || trimmedMessage.length < 2) {
-      console.log(`[Voice API] Gated: Empty or too short input: "${message}"`);
-      return res.status(400).json({ error: 'No valid user input provided' });
+    if (gatingResult.shouldGate) {
+      console.log(`[Voice API] Input gated: ${gatingResult.reason}, message: "${message?.substring(0, 50)}..."`);
+      return res.status(400).json({ 
+        error: gatingResult.reason,
+        gated: true,
+        reason: gatingResult.category
+      });
     }
     
-    if (duration > 0 && duration < minDuration) {
-      console.log(`[Voice API] Gated: Speech too short (${duration}ms < ${minDuration}ms)`);
-      return res.status(400).json({ error: 'Speech too brief, please speak more clearly' });
-    }
-    
-    if (confidence > 0 && confidence < minConfidence) {
-      console.log(`[Voice API] Gated: Low confidence (${confidence} < ${minConfidence})`);
-      return res.status(400).json({ error: 'Could not understand clearly, please repeat' });
-    }
+    // Use the normalized input from gating service
+    const normalizedInput = gatingResult.normalizedInput;
     
     // Get energy level from request body, session, or default to environment/upbeat
     const effectiveEnergyLevel = energyLevel || (req.session as any).energyLevel || process.env.ENERGY_LEVEL || 'upbeat';
 
-    console.log(`[Voice API] Processing valid input for user: ${userId}, session: ${effectiveSessionId}, lesson: ${lessonId}, message length: ${trimmedMessage.length}`);
+    console.log(`[Voice API] Processing valid input for user: ${userId}, session: ${effectiveSessionId}, lesson: ${lessonId}, message length: ${normalizedInput.length}`);
 
     // Get user queue for this session (ensures concurrency = 1 per user)
     const userQueue = userQueueManager.getQueue(effectiveSessionId);
@@ -56,7 +51,7 @@ router.post('/generate-response', async (req, res) => {
     // Enqueue the voice response generation to ensure exactly ONE LLM call per user turn
     const result = await userQueue.enqueue(async () => {
       // Generate enhanced AI response with conversation management
-      const enhancedResponse = await openaiService.generateEnhancedTutorResponse(message, {
+      const enhancedResponse = await openaiService.generateEnhancedTutorResponse(normalizedInput, {
         userId,
         lessonId: lessonId || 'general',
         sessionId: effectiveSessionId,
@@ -75,8 +70,39 @@ router.post('/generate-response', async (req, res) => {
     // Generate voice chunks for synthesis from the enhanced response
     const chunks = [enhancedResponse.content]; // Use the single response content for voice
 
-    // Check if we should use Azure TTS or test mode
+    // Check USE_REALTIME flag to determine voice pipeline  
+    const useRealtimeAPI = process.env.USE_REALTIME === 'true' || process.env.USE_REALTIME === '1';
     const testMode = process.env.VOICE_TEST_MODE !== '0';
+    
+    if (useRealtimeAPI && !testMode) {
+      // Use OpenAI Realtime API for voice synthesis and conversation
+      try {
+        const realtimeConfig = voiceService.getRealtimeConfig();
+        
+        return res.json({
+          content: enhancedResponse.content,
+          chunks,
+          useRealtime: true,
+          realtimeConfig,
+          testMode: false,
+          energyLevel: effectiveEnergyLevel,
+          plan: enhancedResponse.plan,
+          topic: enhancedResponse.topic,
+          repairMove: enhancedResponse.repairMove,
+          usedFallback: enhancedResponse.usedFallback,
+          retryCount: enhancedResponse.retryCount,
+          tokensUsed: enhancedResponse.tokensUsed,
+          model: enhancedResponse.model,
+          banner: enhancedResponse.banner,
+          queueDepth: enhancedResponse.queueDepth,
+          usedCache: enhancedResponse.usedCache,
+          breakerOpen: enhancedResponse.breakerOpen
+        });
+      } catch (error) {
+        console.error('[Voice API] Realtime API error, falling back to Azure TTS:', error);
+        // Fall through to Azure TTS
+      }
+    }
     
     if (!testMode) {
       try {
@@ -253,14 +279,49 @@ router.post('/generate-response', async (req, res) => {
   }
 });
 
+// Generate live token for OpenAI Realtime API
+router.get('/live-token', async (req, res) => {
+  try {
+    const useRealtimeAPI = process.env.USE_REALTIME === 'true' || process.env.USE_REALTIME === '1';
+    
+    if (!useRealtimeAPI) {
+      // Return test mode config when Realtime API is disabled
+      return res.json({
+        token: 'realtime_disabled',
+        config: {
+          testMode: true,
+          realtimeEnabled: false,
+          message: 'OpenAI Realtime API disabled - using Azure TTS mode'
+        }
+      });
+    }
+    
+    const userId = req.user?.id || 'anonymous';
+    const token = await voiceService.generateLiveToken(userId);
+    
+    res.json({ 
+      token,
+      config: voiceService.getRealtimeConfig(),
+      realtimeEnabled: true
+    });
+  } catch (error) {
+    console.error('Error generating live token:', error);
+    res.status(500).json({ error: 'Failed to generate live token' });
+  }
+});
+
 // Get current voice configuration
 router.get('/config', (req, res) => {
+  const useRealtimeAPI = process.env.USE_REALTIME === 'true' || process.env.USE_REALTIME === '1';
+  
   const config = {
     testMode: process.env.VOICE_TEST_MODE !== '0',
+    useRealtime: useRealtimeAPI,
     energyLevel: getCurrentEnergyLevel(),
     voiceName: process.env.AZURE_VOICE_NAME || 'en-US-EmmaMultilingualNeural',
     hasAzureTTS: !!(process.env.AZURE_SPEECH_KEY && process.env.AZURE_SPEECH_REGION),
-    hasOpenAI: !!process.env.OPENAI_API_KEY
+    hasOpenAI: !!process.env.OPENAI_API_KEY,
+    realtimeEnabled: useRealtimeAPI && !!process.env.OPENAI_API_KEY
   };
 
   res.json(config);

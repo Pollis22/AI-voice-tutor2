@@ -125,3 +125,109 @@ The E2E tests cover:
 - API authentication and error handling
 
 **Note**: `AUTH_TEST_MODE=1` is used in CI environments. Production deployments should disable this mode.
+
+## 🔧 Environment Configuration
+
+### Required API Keys
+- `OPENAI_API_KEY` - Your OpenAI API key for AI responses
+- `AZURE_SPEECH_KEY` - Azure Speech Services key for text-to-speech  
+- `AZURE_SPEECH_REGION` - Azure Speech Services region
+- `STRIPE_SECRET_KEY` - Stripe secret key for payments
+- `STRIPE_PUBLISHABLE_KEY` - Stripe publishable key (frontend)
+- `STRIPE_WEBHOOK_SECRET` - Stripe webhook endpoint secret
+
+### Database & Sessions
+- `DATABASE_URL` - PostgreSQL connection string
+- `SESSION_SECRET` - Secret for session encryption (generate a random string)
+
+### Voice & AI Configuration
+- `VOICE_TEST_MODE` - Set to `1` to use browser TTS instead of Azure (default: enabled)
+- `USE_REALTIME` - Set to `true` to use OpenAI Realtime API instead of Azure TTS (default: false)
+- `ENERGY_LEVEL` - Voice energy level: `calm`, `neutral`, or `upbeat` (default: `upbeat`)
+- `AZURE_VOICE_NAME` - Azure TTS voice name (default: `en-US-EmmaMultilingualNeural`)
+
+### Scalability & Performance Configuration
+- `CACHE_TTL_MIN` - Semantic cache TTL in minutes (default: `1440` = 24 hours)
+- `SEMANTIC_CACHE_SIZE` - Maximum cache entries (default: `10000`)
+- `ASR_MIN_MS` - Minimum speech duration for input gating in milliseconds (default: `350`)
+- `ASR_MIN_CONFIDENCE` - Minimum ASR confidence threshold for input gating (default: `0.5`)
+- `MAX_CONCURRENT_USERS` - Maximum concurrent users supported (default: `1000`)
+- `DEBUG_TUTOR` - Set to `1` to enable detailed debug logging (default: disabled)
+
+### Circuit Breaker & Resilience
+- `OPENAI_TIMEOUT_MS` - OpenAI API timeout in milliseconds (default: `30000`)
+- `CIRCUIT_FAILURE_THRESHOLD` - Circuit breaker failure threshold (default: `5`)
+- `CIRCUIT_TIMEOUT_MS` - Circuit breaker timeout in milliseconds (default: `45000`)
+
+### Environment
+- `NODE_ENV` - Environment: `development` or `production`
+- `PORT` - Server port (default: `5000`)
+
+## 🎯 Production Scalability
+
+This platform is designed to handle up to **1,000 concurrent subscribers** with the following scalability features:
+
+### Performance Architecture
+- **Circuit Breaker**: Automatic fallback when OpenAI API is overloaded (4-retry pattern with exponential backoff)
+- **User Queue Management**: Ensures concurrency=1 per session to prevent duplicate API calls
+- **Semantic Cache**: Lesson-specific caching with TTL to reduce API usage
+- **Input Gating**: ASR thresholds (350ms duration, 0.5 confidence) to filter invalid inputs
+- **Anti-Repeat Logic**: Prevents repetitive responses by checking last 2 assistant messages
+
+### Observability & Monitoring
+- **Health Endpoints**: `/api/observability/health` and `/api/observability/metrics`
+- **System Metrics**: Memory usage, circuit breaker state, cache performance, queue depths
+- **Debug Logging**: Comprehensive conversation turn tracking for debugging
+- **Performance Testing**: Parallel test scripts in `/scripts/` directory
+
+### Voice Pipeline
+- **Streaming TTS**: Sentence-by-sentence audio streaming with barge-in support
+- **SSML Enhancement**: en-US-EmmaMultilingualNeural with cheerful style, +6% rate, +1st pitch
+- **Energy Levels**: Configurable voice styles (calm, neutral, upbeat) with prosody mapping
+- **Realtime API Support**: Optional OpenAI Realtime API integration via `USE_REALTIME` flag
+
+### Testing Production Readiness
+
+Run the scalability tests to validate system performance:
+
+```bash
+# Install test dependencies
+cd scripts && npm install
+
+# Test system health
+npm run test:health
+
+# Run concurrent user simulation (3 users, 5 requests each)
+npm run test:concurrent
+```
+
+Expected performance benchmarks:
+- **Response Time**: <2s average
+- **Success Rate**: >95% under normal load
+- **Cache Hit Rate**: >30% after warm-up
+- **Memory Usage**: <90% heap utilization
+
+## 📊 Monitoring in Production
+
+### Key Metrics to Monitor
+1. **Circuit Breaker State**: Should remain CLOSED under normal load
+2. **Memory Usage**: Heap usage should stay below 90%
+3. **Cache Hit Rate**: Should improve over time (indicates semantic cache effectiveness)
+4. **Queue Depths**: Should remain low (effective concurrency management)
+5. **Response Times**: Should stay under 2-5 seconds
+6. **Error Rates**: Should be minimal (<5%)
+
+### Alerting Setup
+Monitor these endpoints for production alerting:
+- `GET /api/observability/health` - Overall system health (200=healthy, 503=degraded)
+- `GET /api/observability/metrics` - Detailed performance metrics (admin-only)
+
+## 🚀 Deployment
+
+This application is ready for production deployment on:
+- **Vercel** (recommended for auto-scaling)
+- **Railway** (integrated PostgreSQL)
+- **Replit** (1-click deployment)
+- **AWS/GCP/Azure** (container deployment)
+
+Ensure all environment variables are configured in your deployment platform before going live.

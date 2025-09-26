@@ -47,29 +47,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   
 
   // Legacy voice API routes (for compatibility)
-  
-  // Live voice token for OpenAI Realtime API
-  app.get("/api/voice/live-token", async (req, res) => {
-    if (!req.isAuthenticated()) {
-      return res.status(401).json({ message: "Unauthorized" });
-    }
-
-    try {
-      const token = await voiceService.generateLiveToken(req.user?.id || 'anonymous');
-      const config = await voiceService.getRealtimeConfig();
-      
-      res.json({ 
-        token, 
-        config: {
-          ...config,
-          sessionId: req.sessionID
-        }
-      });
-    } catch (error) {
-      console.error('Failed to get live voice token:', error);
-      res.status(500).json({ message: "Failed to generate voice token" });
-    }
-  });
+  // Note: live-token endpoint is now handled in voiceRoutes
 
   app.post("/api/voice/narrate", async (req, res) => {
     if (!req.isAuthenticated()) {

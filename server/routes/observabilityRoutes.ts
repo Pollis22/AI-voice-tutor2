@@ -86,7 +86,94 @@ router.get('/metrics', requireAuth, (req, res) => {
     res.json(systemMetrics);
   } catch (error) {
     console.error('[Observability] Error getting metrics:', error);
-    res.status(500).json({ error: 'Failed to retrieve metrics' });
+    res.status(500).json({ 
+      error: 'Failed to retrieve metrics',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// Production-ready system health endpoint
+router.get('/health', (req, res) => {
+  try {
+    const queueMetrics = userQueueManager.getGlobalMetrics();
+    const cacheMetrics = semanticCache.getMetrics();
+    const circuitMetrics = openaiCircuitBreaker.getMetrics();
+    const gatingMetrics = inputGatingService.getMetrics();
+    
+    // Memory usage
+    const memUsage = process.memoryUsage();
+    const memoryMetrics = {
+      heapUsed: Math.round(memUsage.heapUsed / 1024 / 1024),
+      heapTotal: Math.round(memUsage.heapTotal / 1024 / 1024),
+      heapUsedPercent: Math.round((memUsage.heapUsed / memUsage.heapTotal) * 100),
+      rss: Math.round(memUsage.rss / 1024 / 1024),
+      external: Math.round(memUsage.external / 1024 / 1024)
+    };
+    
+    // OpenAI service health
+    const openaiServiceHealth = {
+      healthy: circuitMetrics.state !== 'OPEN',
+      circuitState: circuitMetrics.state,
+      failureRate: circuitMetrics.requests > 0 
+        ? Math.round((circuitMetrics.failures / circuitMetrics.requests) * 100) 
+        : 0,
+      recentFailures: circuitMetrics.failures,
+      lastFailure: circuitMetrics.lastFailureTime 
+        ? new Date(circuitMetrics.lastFailureTime).toISOString() 
+        : null
+    };
+    
+    // Determine overall health
+    const isHealthy = openaiServiceHealth.healthy && 
+                     memoryMetrics.heapUsedPercent < 90 &&
+                     queueMetrics.totalErrors < 100; // Reasonable error threshold
+    
+    const status = isHealthy ? 'healthy' : 'degraded';
+    const httpStatus = isHealthy ? 200 : 503;
+    
+    res.status(httpStatus).json({
+      status,
+      timestamp: new Date().toISOString(),
+      uptime: Math.round(process.uptime()),
+      environment: process.env.NODE_ENV || 'development',
+      version: process.env.npm_package_version || '1.0.0',
+      system: {
+        memory: memoryMetrics,
+        openaiService: openaiServiceHealth,
+        circuitBreaker: {
+          state: circuitMetrics.state,
+          requests: circuitMetrics.requests,
+          failures: circuitMetrics.failures,
+          rejectedRequests: circuitMetrics.rejectedRequests
+        },
+        queues: {
+          activeSessions: queueMetrics.activeSessions,
+          totalOperations: queueMetrics.totalOperations,
+          totalErrors: queueMetrics.totalErrors,
+          avgQueueDepth: Math.round(queueMetrics.avgQueueDepth * 100) / 100
+        },
+        cache: {
+          size: cacheMetrics.totalEntries,
+          hitRate: Math.round(cacheMetrics.hitRate * 100) / 100,
+          memoryUsageKB: Math.round(cacheMetrics.memoryUsage)
+        }
+      },
+      flags: {
+        useRealtime: process.env.USE_REALTIME === 'true' || process.env.USE_REALTIME === '1',
+        voiceTestMode: process.env.VOICE_TEST_MODE !== '0',
+        cacheTtlMin: parseInt(process.env.CACHE_TTL_MIN || '1440'),
+        asrMinMs: parseInt(process.env.ASR_MIN_MS || '350'),
+        asrMinConfidence: parseFloat(process.env.ASR_MIN_CONFIDENCE || '0.5')
+      }
+    });
+  } catch (error) {
+    console.error('[Observability] Health check failed:', error);
+    res.status(500).json({
+      status: 'error',
+      error: error instanceof Error ? error.message : 'Unknown error',
+      timestamp: new Date().toISOString()
+    });
   }
 });
 
