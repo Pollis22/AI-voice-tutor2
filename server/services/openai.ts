@@ -12,6 +12,7 @@ import { userQueueManager } from './userQueueManager';
 import { semanticCache } from './semanticCache';
 import { inputGatingService } from './inputGating';
 import { compareAnswers, normalizeAnswer, mathAnswersEqual, fuzzyTextMatch, normalizeMcqAnswer } from '../utils/answerNormalization';
+import { voiceIntegration } from '../modules/voiceIntegration';
 
 // Validate and log API key status on startup
 const keyStatus = validateAndLogOpenAIKey();
@@ -284,6 +285,34 @@ Response rules:
         const deduplicatedContent = this.checkAndHandleRepeat(content, context.sessionId, subject, lessonId);
         content = deduplicatedContent.content;
         const wasRepeated = deduplicatedContent.wasRepeated;
+
+        // Step 6.5: Answer checking integration (as specified in markdown implementation guide)
+        if (context.lessonContext?.expectedAnswer || context.lessonContext?.currentQuestion) {
+          try {
+            const questionType = context.lessonContext?.questionType || 
+                               (subject === 'math' ? 'math' : 'short');
+            
+            const checkResult = voiceIntegration.checkAnswer(
+              questionType as 'short' | 'mcq' | 'math' | 'open',
+              normalizedMessage,
+              context.lessonContext.expectedAnswer || '',
+              context.lessonContext?.options
+            );
+            
+            if (!checkResult.isCorrect && checkResult.correction) {
+              content = `${checkResult.correction} ${content}`;
+              
+              // Log answer checking when DEBUG_TUTOR=1
+              if (process.env.DEBUG_TUTOR === '1') {
+                console.log(`[Answer Check] Method: ${checkResult.method}, Incorrect answer corrected`);
+              }
+            } else if (checkResult.isCorrect && process.env.DEBUG_TUTOR === '1') {
+              console.log(`[Answer Check] Method: ${checkResult.method}, Correct answer recognized`);
+            }
+          } catch (error) {
+            console.warn('[Answer Check] Error during answer validation:', error);
+          }
+        }
 
         // Step 7: Cache the successful response (only if not repeated)
         if (!wasRepeated) {

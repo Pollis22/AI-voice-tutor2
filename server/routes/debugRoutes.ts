@@ -156,4 +156,4 @@ router.get('/telemetry', (req, res) => {
   }
 });
 
-export default router;
+export { router as debugRoutes };
