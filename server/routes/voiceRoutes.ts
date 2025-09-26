@@ -246,27 +246,32 @@ router.post('/generate-response', async (req, res) => {
     };
     
     const responses = fallbackResponses[subject] || fallbackResponses.general;
-    // Use session to track recent responses and avoid repetition
-    const sessionKey = `recent_responses_${sessionId}`;
+    // Use improved session-based anti-repetition system
+    const sessionKey = `recent_responses_${sessionId || 'default'}`;
     const recentResponses = (req.session as any)[sessionKey] || [];
     
-    // Find a response not recently used
-    let selectedResponse = '';
-    for (const response of responses) {
-      if (!recentResponses.includes(response)) {
-        selectedResponse = response;
-        break;
-      }
-    }
+    // Find responses not recently used
+    const availableResponses = responses.filter(response => 
+      !recentResponses.includes(response)
+    );
     
-    // If all responses were recently used, clear history and pick randomly
-    if (!selectedResponse) {
+    let selectedResponse = '';
+    if (availableResponses.length > 0) {
+      // Pick randomly from available responses
+      selectedResponse = availableResponses[Math.floor(Math.random() * availableResponses.length)];
+    } else {
+      // If all responses were recently used, clear history and pick randomly
+      console.log(`[Voice API] All fallback responses used, clearing history for session: ${sessionId}`);
       (req.session as any)[sessionKey] = [];
       selectedResponse = responses[Math.floor(Math.random() * responses.length)];
     }
     
-    // Track this response
-    (req.session as any)[sessionKey] = [...recentResponses.slice(-2), selectedResponse];
+    // Track this response (keep only last 3 responses for better variety)
+    const updatedHistory = [...recentResponses.slice(-2), selectedResponse];
+    (req.session as any)[sessionKey] = updatedHistory;
+    
+    console.log(`[Voice API] Selected fallback response for ${subject}: "${selectedResponse.substring(0, 50)}..."`);
+    console.log(`[Voice API] Recent responses history length: ${updatedHistory.length}`);
     
     res.json({ 
       content: selectedResponse,

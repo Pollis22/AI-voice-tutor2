@@ -161,7 +161,7 @@ class OpenAIService {
         }
 
         const lessonPrompt = context.lessonContext ? 
-          lessonService.getLessonPrompt(context.lessonContext) : 
+          `Lesson: ${context.lessonContext.title}\nObjectives: ${context.lessonContext.objectives?.join(', ')}\nKey concepts: ${context.lessonContext.keyTopics?.join(', ')}` : 
           SUBJECT_PROMPTS[subject as keyof typeof SUBJECT_PROMPTS] || SUBJECT_PROMPTS.general;
 
         // Classify topic for confidence checking

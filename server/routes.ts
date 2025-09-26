@@ -8,6 +8,7 @@ import { openaiService } from "./services/openai";
 import voiceRoutes from "./routes/voiceRoutes";
 import conversationRoutes from "./routes/conversationRoutes";
 import streamingRoutes from "./routes/streamingRoutes";
+import { debugRoutes } from "./routes/debugRoutes";
 import Stripe from "stripe";
 import { z } from "zod";
 
@@ -27,11 +28,19 @@ const stripe = isStripeEnabled ? new Stripe(stripeKey, {
 export async function registerRoutes(app: Express): Promise<Server> {
   // Health check endpoint
   app.get("/api/health", (req, res) => {
+    const testMode = process.env.VOICE_TEST_MODE !== '0';
+    const hasAzureTTS = !!(process.env.AZURE_SPEECH_KEY && process.env.AZURE_SPEECH_REGION);
+    
     res.status(200).json({ 
       status: "ok", 
       timestamp: new Date().toISOString(),
       env: process.env.NODE_ENV,
-      voiceTestMode: process.env.VOICE_TEST_MODE === "1"
+      voiceTestMode: testMode,
+      ttsEnabled: testMode || hasAzureTTS, // Always true in test mode or with Azure TTS
+      hasOpenAI: !!process.env.OPENAI_API_KEY,
+      hasAzureTTS: hasAzureTTS,
+      useRealtime: process.env.USE_REALTIME === 'true' || process.env.USE_REALTIME === '1',
+      debugMode: process.env.DEBUG_TUTOR === '1'
     });
   });
 
@@ -44,6 +53,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Conversation management routes
   app.use("/api/conversation", conversationRoutes);
   app.use("/api/streaming", streamingRoutes);
+  
+  // Debug routes for monitoring and troubleshooting
+  app.use("/api/debug", debugRoutes);
   
 
   // Legacy voice API routes (for compatibility)
