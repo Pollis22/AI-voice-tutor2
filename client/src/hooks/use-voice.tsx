@@ -254,12 +254,21 @@ export function useVoice() {
         };
         
         // Set up speech recognition callbacks
+        const subject = lessonId ? lessonId.split('-')[0] : 'general';
+        
         if (speechRecognition) {
           speechRecognition.onResult(handleUserSpeech);
           speechRecognition.onError((error) => {
             console.error('[Voice] Speech recognition error:', error);
-            // Fallback to text if speech recognition fails
-            speechService.speak("I'm having trouble hearing you. Let me continue with the lesson. A noun is a word that names a person, place, thing, or idea.");
+            // Fallback to text if speech recognition fails  
+            const fallbackMessage = subject === 'math' 
+              ? "I'm having trouble hearing you. Let me continue with the lesson. Can you show me 2 fingers?"
+              : subject === 'spanish'
+              ? "I'm having trouble hearing you. Let me continue with the lesson. Let's practice saying 'hola'!"
+              : subject === 'english'
+              ? "I'm having trouble hearing you. Let me continue with the lesson. Can you tell me a word that names something?"
+              : "I'm having trouble hearing you. Let's continue learning together. What would you like to explore?";
+            speechService.speak(fallbackMessage);
           });
         }
         
