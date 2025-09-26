@@ -63,7 +63,9 @@ router.get('/stream-response', async (req, res) => {
       if (process.env.VOICE_TEST_MODE !== '1') {
         try {
           const azureTTS = getAzureTTSService();
-          const audioBuffer = await azureTTS.synthesizeSpeech(sentence);
+          // Use current energy level from environment
+          const energyLevel = (process.env.ENERGY_LEVEL || 'upbeat') as any;
+          const audioBuffer = await azureTTS.synthesizeSpeech(sentence, energyLevel);
           
           if (!abortController.signal.aborted) {
             // Send audio data as base64
