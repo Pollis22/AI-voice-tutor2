@@ -113,12 +113,14 @@ export function useVoice() {
         setIsConnected(true);
         
         // Simulated AI responses based on user input patterns
-        const generateAIResponse = async (userInput: string): Promise<string> => {
+        const generateAIResponse = async (userInput: string, speechDuration?: number, speechConfidence?: number): Promise<string> => {
           try {
             const response = await apiRequest("POST", "/api/voice/generate-response", {
               message: userInput,
               lessonId: lessonId || 'general',
               sessionId: sessionId,
+              speechDuration,
+              speechConfidence,
               // Energy level will be determined by server from session or defaults
             });
             
@@ -141,11 +143,18 @@ export function useVoice() {
         // Track if AI is currently speaking to prevent feedback loop
         let isAISpeaking = false;
         
-        // Handle user speech input
-        const handleUserSpeech = async (transcript: string) => {
+        // Handle user speech input with validation
+        const handleUserSpeech = async (transcript: string, duration?: number, confidence?: number) => {
           // Ignore input if AI is speaking (prevents feedback loop)
           if (isAISpeaking) {
             console.log('[Voice] Ignoring input while AI is speaking');
+            return;
+          }
+          
+          // Validate transcript is not empty
+          const trimmedTranscript = transcript?.trim() || '';
+          if (!trimmedTranscript || trimmedTranscript.length < 2) {
+            console.log('[Voice] Ignoring empty or too short input:', transcript);
             return;
           }
           
@@ -158,8 +167,8 @@ export function useVoice() {
             timestamp: Date.now()
           }]);
           
-          // Generate AI response (now async)
-          const aiResponse = await generateAIResponse(transcript);
+          // Generate AI response with speech metrics
+          const aiResponse = await generateAIResponse(transcript, duration, confidence);
           console.log('[Voice] AI response:', aiResponse);
           
           // Stop listening before AI speaks to prevent feedback

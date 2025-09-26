@@ -8,16 +8,40 @@ import { conversationManager } from '../services/conversationManager';
 
 const router = express.Router();
 
-// Generate voice response with enhanced AI and Azure TTS
+// Generate voice response with lesson grounding and turn gating
 router.post('/generate-response', async (req, res) => {
   try {
-    const { message, lessonId, sessionId, energyLevel } = req.body;
-  
-  // Get energy level from request body, session, or default to environment/upbeat
-  const effectiveEnergyLevel = energyLevel || (req.session as any).energyLevel || process.env.ENERGY_LEVEL || 'upbeat';
+    const { message, lessonId, sessionId, energyLevel, speechDuration, speechConfidence } = req.body;
+    
+    // TURN GATING: Validate actual user input
+    const trimmedMessage = message?.trim() || '';
+    const duration = speechDuration || 0;
+    const confidence = speechConfidence || 0;
+    
+    // Check if input meets thresholds
+    const minDuration = parseInt(process.env.ASR_MIN_MS || "300");
+    const minConfidence = parseFloat(process.env.ASR_MIN_CONFIDENCE || "0.5");
+    
+    if (!trimmedMessage || trimmedMessage.length < 2) {
+      console.log(`[Voice API] Gated: Empty or too short input: "${message}"`);
+      return res.status(400).json({ error: 'No valid user input provided' });
+    }
+    
+    if (duration > 0 && duration < minDuration) {
+      console.log(`[Voice API] Gated: Speech too short (${duration}ms < ${minDuration}ms)`);
+      return res.status(400).json({ error: 'Speech too brief, please speak more clearly' });
+    }
+    
+    if (confidence > 0 && confidence < minConfidence) {
+      console.log(`[Voice API] Gated: Low confidence (${confidence} < ${minConfidence})`);
+      return res.status(400).json({ error: 'Could not understand clearly, please repeat' });
+    }
+    
+    // Get energy level from request body, session, or default to environment/upbeat
+    const effectiveEnergyLevel = energyLevel || (req.session as any).energyLevel || process.env.ENERGY_LEVEL || 'upbeat';
     const userId = req.user?.id || 'anonymous';
 
-    console.log(`[Voice API] Generating response for user: ${userId}, lesson: ${lessonId}`);
+    console.log(`[Voice API] Processing valid input for user: ${userId}, lesson: ${lessonId}, message length: ${trimmedMessage.length}`);
 
     // Generate enhanced AI response with conversation management
     const enhancedResponse = await openaiService.generateEnhancedTutorResponse(message, {

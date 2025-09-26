@@ -7,6 +7,7 @@ import { lessonsService } from "./services/lessons";
 import { openaiService } from "./services/openai";
 import voiceRoutes from "./routes/voiceRoutes";
 import conversationRoutes from "./routes/conversationRoutes";
+import streamingRoutes from "./routes/streamingRoutes";
 import Stripe from "stripe";
 import { z } from "zod";
 
@@ -42,6 +43,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   
   // Conversation management routes
   app.use("/api/conversation", conversationRoutes);
+  app.use("/api/streaming", streamingRoutes);
 
   // Legacy voice API routes (for compatibility)
   

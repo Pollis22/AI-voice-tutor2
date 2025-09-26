@@ -75,6 +75,9 @@ IMPORTANT: Stay strictly on this lesson's topic. If the student asks something o
 Teaching approach for ${subject}: ${subjectInstruction}`;
       }
       
+      // Classify topic for confidence checking
+      const topicClassification = topicRouter.classifyTopic(message);
+      
       // Build complete system prompt
       const systemPrompt = `${TUTOR_SYSTEM_PROMPT}
 
@@ -92,6 +95,7 @@ Response rules:
       if (debugMode) {
         console.log(`[OpenAI DEBUG] User input: "${message}" (${message.length} chars)`);
         console.log(`[OpenAI DEBUG] Lesson: ${context.lessonId}, Subject: ${context.lessonContext?.subject}`);
+        console.log(`[OpenAI DEBUG] Topic: ${topicClassification.topic}, Confidence: ${topicClassification.confidence}`);
       }
 
 
