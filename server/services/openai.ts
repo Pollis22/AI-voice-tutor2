@@ -128,10 +128,15 @@ class OpenAIService {
             
           } else {
             // INCORRECT ANSWER: Provide correction + ask follow-up
-            acknowledgmentContent = checkResult.correction || `Not quite. The correct answer is ${questionState.expectedAnswer}. Let me help you understand this better. ${this.getFollowUpQuestion(subject, questionState.currentQuestion)}`;
+            const followUpQuestion = this.getFollowUpQuestion(subject, questionState.currentQuestion);
+            acknowledgmentContent = checkResult.correction || `Not quite. The correct answer is ${questionState.expectedAnswer}. Let me help you understand this better. ${followUpQuestion}`;
             
-            // Clear question state after providing correction
+            // CRITICAL: Set follow-up question state before returning (fix for multi-turn remediation)
             conversationManager.clearQuestionState(sessionId);
+            const followUpData = this.parseQuestionForStorage(followUpQuestion, subject);
+            if (followUpData.expectedAnswer !== 'unknown') {
+              conversationManager.setQuestionState(sessionId, followUpQuestion, followUpData.expectedAnswer, followUpData.questionType, followUpData.options);
+            }
           }
           
           console.log(`[AnswerGate] ${checkResult.isCorrect ? 'CORRECT' : 'INCORRECT'} answer processed`);
@@ -1246,65 +1251,105 @@ Remember: You're not just teaching facts, you're building confidence and curiosi
     return questions[Math.floor(Math.random() * questions.length)];
   }
 
-  // Method to store question state when tutor asks a question
+  // Method to store question state when tutor asks a question (deterministic and subject-aware)
   private storeQuestionInConversation(response: string, subject: string, sessionId: string): void {
     // Extract question from response (simple pattern matching)
     const questionMatch = response.match(/(.+\?)/);
     if (!questionMatch) return;
 
     const question = questionMatch[1].trim();
+    const questionData = this.parseQuestionForStorage(question, subject);
     
-    // Determine expected answer and type based on question pattern
+    if (questionData.expectedAnswer !== 'unknown') {
+      conversationManager.setQuestionState(sessionId, question, questionData.expectedAnswer, questionData.questionType, questionData.options);
+      console.log(`[StoreQuestion] Stored question for session ${sessionId}: "${question}" expects "${questionData.expectedAnswer}"`);
+    }
+  }
+
+  // Deterministic question parsing for reliable expected answer extraction
+  private parseQuestionForStorage(question: string, subject: string): {
+    expectedAnswer: string;
+    questionType: 'short' | 'mcq' | 'math' | 'open';
+    options?: string[];
+  } {
     let expectedAnswer = '';
     let questionType: 'short' | 'mcq' | 'math' | 'open' = 'short';
     let options: string[] | undefined;
 
-    // Math questions
-    if (question.includes('comes after 2')) {
-      expectedAnswer = '3';
-      questionType = 'short';
-    } else if (question.includes('2 + 2') || question.includes('2 plus 2')) {
-      expectedAnswer = '4';
-      questionType = 'math';
-    } else if (question.includes('comes after 3')) {
-      expectedAnswer = '4';
-      questionType = 'short';
-    } else if (question.includes('comes after 5')) {
-      expectedAnswer = '6';
-      questionType = 'short';
-    } else if (question.includes('3 + 1') || question.includes('3 plus 1')) {
-      expectedAnswer = '4';
-      questionType = 'math';
-    } else if (question.includes('comes after 7')) {
-      expectedAnswer = '8';
-      questionType = 'short';
+    // Subject-specific patterns with comprehensive coverage
+    if (subject === 'math') {
+      // Sequence questions
+      if (question.includes('comes after 1')) {
+        expectedAnswer = '2';
+      } else if (question.includes('comes after 2')) {
+        expectedAnswer = '3';
+      } else if (question.includes('comes after 3')) {
+        expectedAnswer = '4';
+      } else if (question.includes('comes after 4')) {
+        expectedAnswer = '5';
+      } else if (question.includes('comes after 5')) {
+        expectedAnswer = '6';
+      } else if (question.includes('comes after 6')) {
+        expectedAnswer = '7';
+      } else if (question.includes('comes after 7')) {
+        expectedAnswer = '8';
+      }
+      // Addition questions
+      else if (question.includes('1 + 1') || question.includes('1 plus 1')) {
+        expectedAnswer = '2';
+        questionType = 'math';
+      } else if (question.includes('2 + 2') || question.includes('2 plus 2')) {
+        expectedAnswer = '4';
+        questionType = 'math';
+      } else if (question.includes('3 + 1') || question.includes('3 plus 1')) {
+        expectedAnswer = '4';
+        questionType = 'math';
+      } else if (question.includes('2 + 1') || question.includes('2 plus 1')) {
+        expectedAnswer = '3';
+        questionType = 'math';
+      } else if (question.includes('5 + 1') || question.includes('5 plus 1')) {
+        expectedAnswer = '6';
+        questionType = 'math';
+      }
+      // Counting questions
+      else if (question.includes('count to 3') || question.includes('1 to 3')) {
+        expectedAnswer = '1, 2, 3';
+        questionType = 'open';
+      }
+    } else if (subject === 'english') {
+      // Alphabet questions
+      if (question.includes('after A')) {
+        expectedAnswer = 'B';
+      } else if (question.includes('after B')) {
+        expectedAnswer = 'C';
+      } else if (question.includes('after C')) {
+        expectedAnswer = 'D';
+      }
+      // Vocabulary questions
+      else if (question.includes('opposite of hot') || question.includes("opposite of 'hot'")) {
+        expectedAnswer = 'cold';
+      } else if (question.includes('word that starts with C')) {
+        expectedAnswer = 'cat';  // Accept any reasonable answer
+        questionType = 'open';
+      }
+    } else if (subject === 'spanish') {
+      // Basic greetings
+      if ((question.includes('hello') || question.includes('hi')) && question.includes('Spanish')) {
+        expectedAnswer = 'hola';
+      } else if (question.includes('gracias') && question.includes('English')) {
+        expectedAnswer = 'thank you';
+      } else if (question.includes('good morning') && question.includes('Spanish')) {
+        expectedAnswer = 'buenos días';
+      }
     }
-    // English questions
-    else if (question.includes('after B')) {
-      expectedAnswer = 'C';
-      questionType = 'short';
-    } else if (question.includes('opposite of')) {
-      expectedAnswer = 'cold';
-      questionType = 'short';
-    }
-    // Spanish questions
-    else if (question.includes('hello') && question.includes('Spanish')) {
-      expectedAnswer = 'hola';
-      questionType = 'short';
-    } else if (question.includes('gracias')) {
-      expectedAnswer = 'thank you';
-      questionType = 'short';
-    }
-    // General fallback
-    else {
+
+    // General fallback for unknown patterns
+    if (!expectedAnswer) {
       expectedAnswer = 'unknown';
       questionType = 'open';
     }
 
-    if (expectedAnswer !== 'unknown') {
-      conversationManager.setQuestionState(sessionId, question, expectedAnswer, questionType, options);
-      console.log(`[StoreQuestion] Stored question for session ${sessionId}: "${question}" expects "${expectedAnswer}"`);
-    }
+    return { expectedAnswer, questionType, options };
   }
 }
 
