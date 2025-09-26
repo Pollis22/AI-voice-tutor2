@@ -5,6 +5,12 @@ export class ConversationManager {
 
   // Initialize conversation context for a session
   initializeContext(sessionId: string, userId: string): ConversationContext {
+    // Clear any existing context to prevent message duplication
+    if (this.contexts.has(sessionId)) {
+      console.log(`[Conversation] Clearing existing context for session ${sessionId}`);
+      this.contexts.delete(sessionId);
+    }
+    
     const context: ConversationContext = {
       state: 'greet',
       sessionId,
@@ -12,7 +18,16 @@ export class ConversationManager {
       previousPlans: []
     };
     this.contexts.set(sessionId, context);
+    console.log(`[Conversation] Initialized fresh context for session ${sessionId}`);
     return context;
+  }
+  
+  // Clear context when switching lessons
+  clearContext(sessionId: string): void {
+    if (this.contexts.has(sessionId)) {
+      this.contexts.delete(sessionId);
+      console.log(`[Conversation] Cleared context for session ${sessionId}`);
+    }
   }
 
   // Get conversation context

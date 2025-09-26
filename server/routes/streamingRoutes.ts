@@ -63,13 +63,7 @@ router.get('/stream-response', async (req, res) => {
       if (process.env.VOICE_TEST_MODE !== '1') {
         try {
           const azureTTS = getAzureTTSService();
-          const audioBuffer = await azureTTS.synthesizeSpeech(sentence, {
-            voice: process.env.AZURE_VOICE_NAME || 'en-US-AriaNeural',
-            style: 'cheerful',
-            styledegree: 1.2,
-            prosodyRate: '+6%',
-            prosodyPitch: '+1st',
-          });
+          const audioBuffer = await azureTTS.synthesizeSpeech(sentence);
           
           if (!abortController.signal.aborted) {
             // Send audio data as base64
@@ -85,7 +79,7 @@ router.get('/stream-response', async (req, res) => {
       }
       
       // Small delay between sentences
-      await new Promise(resolve => setTimeout(resolve, 100));
+      await new Promise<void>(resolve => setTimeout(resolve, 100));
     }
     
     // Send completion event
