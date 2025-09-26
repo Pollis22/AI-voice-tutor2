@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { useVoice } from "@/hooks/use-voice";
 import { Badge } from "@/components/ui/badge";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 interface VoiceControlsProps {
   lessonId: string;
@@ -17,8 +18,18 @@ export function VoiceControls({ lessonId }: VoiceControlsProps) {
     muteAudio, 
     unmuteAudio, 
     isMuted,
-    error 
+    error,
+    conversationHistory
   } = useVoice();
+
+  const scrollAreaRef = useRef<HTMLDivElement>(null);
+
+  // Auto-scroll to bottom when new messages are added
+  useEffect(() => {
+    if (scrollAreaRef.current) {
+      scrollAreaRef.current.scrollTop = scrollAreaRef.current.scrollHeight;
+    }
+  }, [conversationHistory]);
 
   const handleStartVoice = async () => {
     try {
@@ -48,7 +59,7 @@ export function VoiceControls({ lessonId }: VoiceControlsProps) {
             <div className="space-y-4" data-testid="voice-inactive">
               <div className="w-20 h-20 bg-primary/10 rounded-full mx-auto flex items-center justify-center mb-4">
                 <svg className="w-10 h-10 text-primary" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 015 8a1 1 0 00-2 0 7.001 7.001 0 006 6.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-3v-2.07z" clipRule="evenodd"/>
+                  <path fillRule="evenodd" d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 715 8a1 1 0 00-2 0 7.001 7.001 0 006 6.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-3v-2.07z" clipRule="evenodd"/>
                 </svg>
               </div>
               
@@ -72,31 +83,83 @@ export function VoiceControls({ lessonId }: VoiceControlsProps) {
             </div>
           ) : (
             <div className="space-y-4" data-testid="voice-active">
-              <div className="w-20 h-20 bg-secondary/20 rounded-full mx-auto flex items-center justify-center mb-4 voice-pulse">
-                <div className="w-16 h-16 bg-secondary/30 rounded-full flex items-center justify-center">
-                  <div className="w-12 h-12 bg-secondary rounded-full flex items-center justify-center">
-                    <svg className="w-6 h-6 text-secondary-foreground" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 015 8a1 1 0 00-2 0 7.001 7.001 0 006 6.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-3v-2.07z" clipRule="evenodd"/>
-                    </svg>
-                  </div>
+              {/* Status Header */}
+              <div className="flex items-center justify-center space-x-4">
+                <div className="w-12 h-12 bg-secondary/20 rounded-full flex items-center justify-center voice-pulse">
+                  <svg className="w-6 h-6 text-secondary-foreground" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M7 4a3 3 0 616 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 715 8a1 1 0 00-2 0 7.001 7.001 0 006 6.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-3v-2.07z" clipRule="evenodd"/>
+                  </svg>
                 </div>
-              </div>
-              
-              <div className="space-y-2">
-                <h3 className="text-lg font-medium text-foreground">Voice session active</h3>
                 
-                <div className="flex items-center justify-center space-x-2">
+                <div className="flex items-center space-x-2">
                   <Badge variant={isConnected ? "default" : "secondary"}>
                     {isConnected ? "Connected" : "Connecting..."}
                   </Badge>
                   {isMuted && <Badge variant="outline">Muted</Badge>}
                 </div>
+              </div>
+
+              {/* Conversation Transcript */}
+              <div className="w-full" data-testid="conversation-transcript">
+                <h3 className="text-sm font-medium text-muted-foreground mb-3 text-center">Conversation</h3>
                 
-                <p className="text-sm text-muted-foreground">
-                  Your AI tutor is {isConnected ? "listening and ready to help" : "connecting..."}
-                </p>
+                <Card className="border-2">
+                  <CardContent className="p-0">
+                    <ScrollArea 
+                      className="h-80 w-full p-4" 
+                      ref={scrollAreaRef}
+                    >
+                      <div className="space-y-3">
+                        {conversationHistory.length === 0 ? (
+                          <div className="text-center text-muted-foreground text-sm py-8">
+                            Conversation will appear here...
+                          </div>
+                        ) : (
+                          conversationHistory.map((message, index) => (
+                            <div
+                              key={index}
+                              className={`flex ${message.type === 'user' ? 'justify-end' : 'justify-start'}`}
+                              data-testid={`message-${message.type}-${index}`}
+                            >
+                              <div
+                                className={`max-w-[80%] rounded-lg px-3 py-2 text-sm ${
+                                  message.type === 'user'
+                                    ? 'bg-primary text-primary-foreground ml-4'
+                                    : 'bg-muted text-muted-foreground mr-4'
+                                }`}
+                              >
+                                <div className="flex items-center space-x-2 mb-1">
+                                  <span className="font-medium text-xs">
+                                    {message.type === 'user' ? 'You' : 'AI Tutor'}
+                                  </span>
+                                  <span className="text-xs opacity-70">
+                                    {new Date(message.timestamp).toLocaleTimeString([], {
+                                      hour: '2-digit',
+                                      minute: '2-digit'
+                                    })}
+                                  </span>
+                                </div>
+                                <div className="leading-relaxed">
+                                  {message.content}
+                                </div>
+                              </div>
+                            </div>
+                          ))
+                        )}
+                        
+                        {/* Show current status */}
+                        {isConnected && (
+                          <div className="text-center text-xs text-muted-foreground py-2 border-t">
+                            {isMuted ? "🔇 Microphone muted" : "🎤 Listening for your voice..."}
+                          </div>
+                        )}
+                      </div>
+                    </ScrollArea>
+                  </CardContent>
+                </Card>
               </div>
               
+              {/* Control Buttons */}
               <div className="flex justify-center space-x-3">
                 <Button
                   variant="outline"
