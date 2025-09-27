@@ -15,6 +15,7 @@ import { normalizeAnswer } from '../utils/answerNormalization';
 import { voiceIntegration } from '../modules/voiceIntegration';
 import { guardrails } from './guardrails';
 import { answerChecker } from './answerChecker';
+import { getTutorMindPrompt } from '../prompts/tutorMind';
 
 // Validate and log API key status on startup
 const keyStatus = validateAndLogOpenAIKey();
@@ -95,7 +96,7 @@ class OpenAIService {
         }
 
         const normalizedMessage = gatingResult.normalizedInput || message.trim();
-        const subject = context.lessonContext?.subject || lessonId.split('-')[0] || 'general';
+        let subject = context.lessonContext?.subject || lessonId.split('-')[0] || 'general';
 
         // Step 1.5: Early Answer-Checking Gate (Strategic Fix)
         const questionState = conversationManager.getQuestionState(sessionId);
@@ -206,8 +207,9 @@ class OpenAIService {
           context.lessonContext = await lessonService.getLessonContext(context.lessonId) || undefined;
         }
 
+        // Subject already declared above
         const lessonPrompt = context.lessonContext ? 
-          `Lesson: ${context.lessonContext.title}\nObjectives: ${context.lessonContext.objectives?.join(', ')}\nKey concepts: ${context.lessonContext.keyTopics?.join(', ')}` : 
+          `Lesson: ${context.lessonContext.title}\nObjectives: ${context.lessonContext.objectives?.join(', ')}\nKey concepts: ${context.lessonContext.keyTerms?.join(', ')}` : 
           SUBJECT_PROMPTS[subject as keyof typeof SUBJECT_PROMPTS] || SUBJECT_PROMPTS.general;
 
         // Classify topic for confidence checking
@@ -234,17 +236,7 @@ class OpenAIService {
         }
 
         // Build complete system prompt
-        const systemPrompt = `${TUTOR_SYSTEM_PROMPT}
-
-${lessonPrompt}
-
-Current energy: ${context.energyLevel || 'upbeat'}
-
-Response rules:
-1. Maximum 2 sentences per turn
-2. End with a question
-3. Never create or invent user messages
-4. Use the tutor_plan function for structured responses`;
+        const systemPrompt = getTutorMindPrompt(context?.lessonContext);
 
         const debugMode = process.env.DEBUG_TUTOR === '1';
         if (debugMode) {
@@ -254,7 +246,7 @@ Response rules:
         }
 
         // Step 5: Circuit-breaker protected OpenAI call
-        const retryResult = await openaiCircuitBreaker.call(async () => {
+        const retryResult = await openaiCircuitBreaker.execute(async () => {
           return await retryOpenAICall(async () => {
             // Apply guardrails to prevent user fabrication
             const rawMessages = [
@@ -306,7 +298,7 @@ Response rules:
         // Check if the model used the tutor_plan tool
         const toolCalls = completion.choices[0].message.tool_calls;
         if (toolCalls && toolCalls.length > 0) {
-          const tutorPlanCall = toolCalls.find(tc => tc.function.name === 'tutor_plan');
+          const tutorPlanCall = toolCalls.find((tc: any) => tc.function.name === 'tutor_plan');
           if (tutorPlanCall) {
             try {
               const planData = JSON.parse(tutorPlanCall.function.arguments);
@@ -357,16 +349,21 @@ Response rules:
           banner: wasRepeated ? "Generating fresh response" : undefined
         };
 
-        // Apply guardrails to final response content
-        content = guardrails.sanitizeTutorQuestion(content);
-        content = guardrails.avoidRepeat(context.sessionId || sessionId, content);
-        content = guardrails.enforceFormat(content);
+        // --- TutorMind post-processing (inclusive + corrections + format) ---
+        let finalResponseContent = guardrails.sanitizeTutorQuestion(content);        // inclusive rephrase
+        finalResponseContent = guardrails.avoidRepeat(sessionId, finalResponseContent);      // anti-repeat
+        // Answer correction checking - using context if available
+        if (context?.lessonContext && normalizedMessage) {
+          // For now, skip answer checking as lessonContext properties need to be properly defined
+          // This will be handled by the early answer gate system
+        }
+        content = guardrails.enforceFormat(finalResponseContent);               // ≤2 sentences, ends with '?'
         
         // Update final response with guardrail-processed content
         finalResponse.content = content;
 
         // Store question state if response contains a question (CRITICAL for answer acknowledgment)  
-        const responseSubject = subject || lessonId.split('-')[0] || 'general';
+        const responseSubject = subject;
         if (context.sessionId && content.includes('?')) {
           this.storeQuestionInConversation(content, responseSubject, context.sessionId);
         }
@@ -387,7 +384,8 @@ Response rules:
         console.error("[OpenAI] generateEnhancedTutorResponse error:", error);
         
         // Use fallback for errors
-        const fallbackResult = this.getLessonSpecificFallback(subject, message, sessionId);
+        const errorSubjectFallback = context.lessonContext?.subject || lessonId.split('-')[0] || 'general';
+        const fallbackResult = this.getLessonSpecificFallback(errorSubjectFallback, message, sessionId);
         
         const errorResponse: EnhancedTutorResponse = {
           content: fallbackResult.content,
@@ -408,7 +406,7 @@ Response rules:
         errorResponse.content = guardrails.enforceFormat(errorResponse.content);
 
         // Store question state if fallback response contains a question
-        const errorSubject = subject || lessonId.split('-')[0] || 'general';
+        const errorSubject = context.lessonContext?.subject || lessonId.split('-')[0] || 'general';
         if (context.sessionId && errorResponse.content.includes('?')) {
           this.storeQuestionInConversation(errorResponse.content, errorSubject, context.sessionId);
         }
