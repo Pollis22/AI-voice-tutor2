@@ -20,8 +20,9 @@ import TutorPage from "@/pages/tutor-page";
 function Router() {
   return (
     <Switch>
-      <ProtectedRoute path="/" component={HomePage} />
+      <ProtectedRoute path="/" component={TutorPage} />
       <ProtectedRoute path="/tutor" component={TutorPage} />
+      <ProtectedRoute path="/old-lessons" component={HomePage} />
       <ProtectedRoute path="/lessons" component={LessonsPage} />
       <ProtectedRoute path="/lesson/:lessonId" component={LessonPage} />
       <ProtectedRoute path="/quiz/:lessonId" component={QuizPage} />
