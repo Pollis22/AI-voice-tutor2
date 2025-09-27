@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useEffect, useRef, useState } from "react";
 import { TutorErrorBoundary } from "@/components/tutor-error-boundary";
+import { usePerformanceMonitor } from "@/hooks/use-performance-monitor";
 import { AGENTS, GREETINGS, type AgentLevel } from "@/agents";
 
 declare global {
@@ -71,6 +72,9 @@ export default function TutorPage() {
   const [widgetStatus, setWidgetStatus] = useState<'loading' | 'ready' | 'error' | 'reconnecting'>('loading');
   const [sessionStartTime, setSessionStartTime] = useState<number | null>(null);
 
+  // Performance monitoring
+  const performanceMonitor = usePerformanceMonitor(AGENTS[level]);
+
   // Check microphone permissions on mount
   useEffect(() => {
     const checkPermissions = async () => {
@@ -117,9 +121,13 @@ export default function TutorPage() {
       setNetworkError(null);
       setWidgetStatus('ready');
       
+      // Mark script as loaded for performance monitoring
+      performanceMonitor.markScriptLoaded();
+      
       // Add global error handler for unhandled promises
       window.addEventListener('unhandledrejection', (event) => {
         console.error('Unhandled promise rejection:', event.reason);
+        performanceMonitor.incrementError();
         if (typeof window !== 'undefined' && (window as any).gtag) {
           (window as any).gtag('event', 'unhandled_error', {
             event_category: 'error',
@@ -132,6 +140,9 @@ export default function TutorPage() {
     s.onerror = (error) => {
       console.error('Failed to load ElevenLabs ConvAI script:', error);
       setNetworkError('Failed to load ConvAI widget. Please check your internet connection and try again.');
+      
+      // Performance monitoring
+      performanceMonitor.incrementError();
       
       // Analytics hook for error tracking
       if (typeof window !== 'undefined' && (window as any).gtag) {
@@ -220,6 +231,7 @@ export default function TutorPage() {
     el.addEventListener("error", (e: any) => {
       console.error("ConvAI widget error:", e.detail);
       setWidgetStatus('error');
+      performanceMonitor.incrementError();
       if (typeof window !== 'undefined' && (window as any).gtag) {
         (window as any).gtag('event', 'widget_error', {
           event_category: 'error',
@@ -251,6 +263,7 @@ export default function TutorPage() {
     el.addEventListener("widget-ready", (e: any) => {
       const widgetReadyTime = Date.now() - (sessionStartTime || 0);
       console.log(`ConvAI widget ready in ${widgetReadyTime}ms`);
+      performanceMonitor.markFirstInteraction();
       if (typeof window !== 'undefined' && (window as any).gtag) {
         (window as any).gtag('event', 'widget_ready', {
           event_category: 'performance',
@@ -259,7 +272,19 @@ export default function TutorPage() {
       }
     });
     
+    // Add conversation turn tracking
+    el.addEventListener("user-spoke", () => {
+      performanceMonitor.incrementTurn();
+    });
+    
+    el.addEventListener("agent-spoke", () => {
+      performanceMonitor.incrementTurn();
+    });
+    
     containerRef.current.appendChild(el);
+
+    // Mark widget as mounted for performance monitoring
+    performanceMonitor.markWidgetMounted();
 
     // Save initial progress on mount
     const currentProgress = loadProgress();
