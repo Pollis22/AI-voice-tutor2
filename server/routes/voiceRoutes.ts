@@ -271,7 +271,7 @@ router.post('/generate-response', async (req, res) => {
     // CRITICAL: Apply phrase guards to prevent ableist content
     selectedResponse = hardBlockIfBanned(selectedResponse);
     selectedResponse = guardrails.sanitizeTutorQuestion(selectedResponse);
-    selectedResponse = guardrails.avoidRepeat(sessionId || 'default', selectedResponse);
+    selectedResponse = guardrails.avoidRepeat(sessionId || 'default', selectedResponse, subject);
     selectedResponse = guardrails.enforceFormat(selectedResponse);
     
     // Track this response (keep only last 3 responses for better variety)

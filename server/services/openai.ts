@@ -144,9 +144,9 @@ class OpenAIService {
           
           console.log(`[AnswerGate] ${checkResult.ok ? 'CORRECT' : 'INCORRECT'} answer processed`);
           
-          // Apply guardrails to acknowledgment content
+          // Apply guardrails to acknowledgment content with subject context
           acknowledgmentContent = guardrails.sanitizeTutorQuestion(acknowledgmentContent);
-          acknowledgmentContent = guardrails.avoidRepeat(sessionId, acknowledgmentContent);
+          acknowledgmentContent = guardrails.avoidRepeat(sessionId, acknowledgmentContent, subject);
           acknowledgmentContent = guardrails.enforceFormat(acknowledgmentContent);
           
           return {
@@ -357,7 +357,7 @@ class OpenAIService {
 
         // --- TutorMind post-processing (inclusive + corrections + format) ---
         let finalResponseContent = guardrails.sanitizeTutorQuestion(content);        // inclusive rephrase
-        finalResponseContent = guardrails.avoidRepeat(sessionId, finalResponseContent);      // anti-repeat
+        finalResponseContent = guardrails.avoidRepeat(sessionId, finalResponseContent, subject);      // anti-repeat with subject context
         // Answer correction checking - using context if available
         if (context?.lessonContext && normalizedMessage) {
           // For now, skip answer checking as lessonContext properties need to be properly defined
@@ -406,9 +406,10 @@ class OpenAIService {
           breakerOpen: openaiCircuitBreaker.isOpen()
         };
 
-        // Apply guardrails to error response content
+        // Apply guardrails to error response content with subject context
+        const errorResponseSubject = context.lessonContext?.subject || lessonId.split('-')[0] || 'general';
         errorResponse.content = guardrails.sanitizeTutorQuestion(errorResponse.content);
-        errorResponse.content = guardrails.avoidRepeat(context.sessionId || sessionId, errorResponse.content);
+        errorResponse.content = guardrails.avoidRepeat(context.sessionId || sessionId, errorResponse.content, errorResponseSubject);
         errorResponse.content = guardrails.enforceFormat(errorResponse.content);
 
         // Store question state if fallback response contains a question
