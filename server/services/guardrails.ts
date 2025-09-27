@@ -21,9 +21,9 @@ export class TutorGuardrails {
     return s.charAt(0).toUpperCase() + s.slice(1);
   }
 
-  avoidRepeat(sessionId: string, candidate: string): string {
-    // P0 HOTFIX: Use new optimized anti-repeat system
-    return antiRepeat(sessionId, candidate, this.recentResponses);
+  avoidRepeat(sessionId: string, candidate: string, subject?: string): string {
+    // P0 HOTFIX: Use new optimized anti-repeat system with subject context
+    return antiRepeat(sessionId, candidate, this.recentResponses, subject);
   }
 
   enforceFormat(text: string): string {

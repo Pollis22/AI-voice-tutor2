@@ -82,7 +82,7 @@ export function topicGuard(text: string, topic?: string): string {
   return hasTopic ? text : `Let's focus on ${topic}. ${text}`;
 }
 
-export function antiRepeat(sessionId: string, text: string, store: Map<string,string[]>): string {
+export function antiRepeat(sessionId: string, text: string, store: Map<string,string[]>, subject?: string): string {
   const key = sessionId || 'default';
   const recent = store.get(key) ?? [];
   const normalized = text.toLowerCase().replace(/\s+/g,' ').trim();
@@ -96,20 +96,40 @@ export function antiRepeat(sessionId: string, text: string, store: Map<string,st
   });
   
   if (isRepeat) {
-    const alternatives = [
-      "Let me try explaining differently. What's 2 plus 1?",
-      "Here's another approach. If you have 2 apples and get 1 more, how many total?",
-      "Think about it this way. What number is one more than 2?",
-      "Let's use a different example. Count: 1, 2, and then?",
-      "Try breaking it down. Start at 2 and add 1, what do you get?",
-      "Here's another way to think about it. What pattern do you notice?",
-      "Let me give you a hint. Try breaking it into smaller parts.",
-      "Good effort! Consider this approach instead. What's the first step?"
-    ];
+    // Subject-specific alternatives to prevent mixing subjects
+    const subjectAlternatives: Record<string, string[]> = {
+      math: [
+        "Let me try explaining differently. What's 2 plus 1?",
+        "Here's another approach. If you have 2 apples and get 1 more, how many total?",
+        "Let's use a different example. Count: 1, 2, and then?",
+        "Try breaking it down. Start at 2 and add 1, what do you get?"
+      ],
+      english: [
+        "Let me try a different question. Can you name a word that describes something?",
+        "Here's another approach. What's your favorite action word?",
+        "Let's think differently. Can you give me a word that names a person?",
+        "Try this instead. What word describes how something looks?"
+      ],
+      spanish: [
+        "Intentemos algo diferente. ¿Cómo se dice 'hello' en español?",
+        "Otra pregunta. ¿Puedes contar hasta tres en español?",
+        "Vamos a cambiar. ¿Qué significa 'gracias'?",
+        "Probemos esto. ¿Cómo se dice 'good' en español?"
+      ],
+      general: [
+        "Here's another way to think about it. What pattern do you notice?",
+        "Let me give you a hint. Try breaking it into smaller parts.",
+        "Good effort! Consider this approach instead. What's the first step?",
+        "Let's try a different angle. What do you think happens next?"
+      ]
+    };
+    
+    const currentSubject = subject?.toLowerCase() || 'general';
+    const alternatives = subjectAlternatives[currentSubject] || subjectAlternatives.general;
     const alt = alternatives[Math.floor(Math.random() * alternatives.length)];
     
     if (process.env.TUTOR_DEBUG_CORRECTIONS === 'true') {
-      console.log('[AntiRepeat] Replaced repetitive response with:', alt);
+      console.log(`[AntiRepeat] Replaced repetitive response for ${currentSubject} with:`, alt);
     }
     
     return alt;

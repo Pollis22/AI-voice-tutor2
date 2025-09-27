@@ -16,6 +16,7 @@ import { voiceIntegration } from '../modules/voiceIntegration';
 import { guardrails } from './guardrails';
 import { answerChecker } from './answerChecker';
 import { getTutorMindPrompt } from '../prompts/tutorMind';
+import { processTutorResponse, tutorCore } from './responsePipeline';
 
 // Validate and log API key status on startup
 const keyStatus = validateAndLogOpenAIKey();
@@ -207,10 +208,15 @@ class OpenAIService {
           context.lessonContext = await lessonService.getLessonContext(context.lessonId) || undefined;
         }
 
-        // Subject already declared above
-        const lessonPrompt = context.lessonContext ? 
-          `Lesson: ${context.lessonContext.title}\nObjectives: ${context.lessonContext.objectives?.join(', ')}\nKey concepts: ${context.lessonContext.keyTerms?.join(', ')}` : 
-          SUBJECT_PROMPTS[subject as keyof typeof SUBJECT_PROMPTS] || SUBJECT_PROMPTS.general;
+        // Use TutorCore system prompt for consistent behavior
+        const lessonPlan = {
+          subject,
+          topic: context.lessonContext?.title || 'general learning',
+          currentStep: 'introduction', // Default step
+          content: {}, // Default content
+          objectives: context.lessonContext?.objectives,
+          keyTerms: context.lessonContext?.keyTerms
+        };
 
         // Classify topic for confidence checking
         const topicClassification = topicRouter.classifyTopic(normalizedMessage);
@@ -235,8 +241,8 @@ class OpenAIService {
           };
         }
 
-        // Build complete system prompt
-        const systemPrompt = getTutorMindPrompt(context?.lessonContext);
+        // Build complete system prompt using TutorCore
+        const systemPrompt = tutorCore.getSystemPrompt(lessonPlan);
 
         const debugMode = process.env.DEBUG_TUTOR === '1';
         if (debugMode) {
@@ -292,7 +298,7 @@ class OpenAIService {
         const tokensUsed = completion.usage?.total_tokens || 0;
         
         // Extract content and plan from the response
-        let content = completion.choices[0].message.content || '';
+        let rawContent = completion.choices[0].message.content || '';
         let plan: TutorPlan | undefined;
 
         // Check if the model used the tutor_plan tool
