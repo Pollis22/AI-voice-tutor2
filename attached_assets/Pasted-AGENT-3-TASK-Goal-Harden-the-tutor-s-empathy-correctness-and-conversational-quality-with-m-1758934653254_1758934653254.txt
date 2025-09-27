@@ -1,0 +1,113 @@
+AGENT 3 TASK
+
+## Goal
+Harden the tutor’s empathy, correctness, and conversational quality with *minimal surface edits*. Add inclusive language guardrails, robust answer checking (math/MCQ/short-text), anti-repetition, format enforcement (≤2 sentences, end with a question), and prevention of fabricated “You said…” assistant turns. Provide unit tests. Keep all changes modular.
+
+## Constraints
+- Do NOT rewrite large files; only small imports + call sites.
+- Add new services/modules under `server/services`, `server/prompts`, `server/utils`, and `tests`.
+- One LLM call per user turn remains the rule.
+- Existing voice/LLM plumbing stays intact; we intercept and sanitize the assistant response.
+
+---
+
+### STEP 1 — Create Guardrails Service
+Create `server/services/guardrails.ts`:
+
+```ts
+export class TutorGuardrails {
+  private recentResponses: Map<string, string[]> = new Map();
+  private readonly maxRecent = 3;
+
+  sanitizeTutorQuestion(text: string): string {
+    // Inclusive rephrasings for common ableist/assumptive patterns
+    const replacements: Record<string,string> = {
+      'how many fingers do you have': 'how many fingers are typically on a hand',
+      'fingers on your hand': 'fingers on a hand',
+      'your hand': 'a hand',
+      'your fingers': 'fingers',
+      'can you see': 'what do you notice about',
+      'can you hear': 'what sounds might there be',
+      'stand up and': 'imagine you',
+      'walk to': 'think about going to',
+      'run around': 'imagine moving around',
+      'look at your': 'think about a',
+      'touch your': 'point to where your',
+      'clap your hands': 'count the claps: clap, clap',
+      'jump up': 'count up',
+      'raise your hand': 'what would you say',
+      'point to your': 'name the body part:',
+      'use your legs': 'think about legs',
+      'with your eyes': 'in this picture'
+    };
+
+    let s = text.trim();
+    Object.entries(replacements).forEach(([bad, good]) => {
+      s = s.replace(new RegExp(bad, 'gi'), good);
+    });
+
+    // Generic physical-command softening (assumptions → imagination)
+    const verbs = ['stand','walk','run','jump','see','hear','touch','hold','grab','reach','climb','skip','hop'];
+    verbs.forEach(v => {
+      s = s.replace(new RegExp(`\\b(you ${v}|${v} up|${v} down|${v} around)\\b`, 'gi'), `imagine you ${v}`);
+    });
+
+    // Normalize capitalization
+    return s.charAt(0).toUpperCase() + s.slice(1);
+  }
+
+  avoidRepeat(sessionId: string, candidate: string): string {
+    const recent = this.recentResponses.get(sessionId) ?? [];
+    const norm = (x:string)=>x.toLowerCase().replace(/\s+/g,' ').trim();
+    const dup = recent.some(r => norm(r) === norm(candidate) || this.similarity(r,candidate) > 0.85);
+    if (dup) return this.getStepHint(sessionId);
+    recent.push(candidate);
+    if (recent.length > this.maxRecent) recent.shift();
+    this.recentResponses.set(sessionId, recent);
+    return candidate;
+  }
+
+  enforceFormat(text: string): string {
+    // ≤2 sentences & must end with '?'
+    const sentences = (text.match(/[^.!?]+[.!?]+/g) ?? [text]).slice(0,2);
+    let out = sentences.join(' ').trim();
+    if (!/\?$/.test(out)) {
+      const followUps = [
+        'What do you think?', 'Can you try it?', 'Does that make sense?',
+        'Ready to continue?', 'What’s your answer?', 'How does that work?'
+      ];
+      out = out.replace(/[.!?]+$/, '').trim() + '. ' + followUps[Math.floor(Math.random()*followUps.length)];
+    }
+    return out;
+  }
+
+  preventUserFabrication(messages: Array<{role:string; content:string}>): Array<{role:string; content:string}> {
+    const forbidden = ['you said:', 'you mentioned:', 'you told me:', 'you asked:', 'you answered:', 'your answer was:', 'you responded:'];
+    return messages.filter(m => m.role !== 'assistant' || !forbidden.some(f => m.content.toLowerCase().includes(f)));
+  }
+
+  // --- helpers ---
+  private similarity(a: string, b: string): number {
+    const A = new Set(a.toLowerCase().split(/\s+/));
+    const B = new Set(b.toLowerCase().split(/\s+/));
+    const inter = [...A].filter(x=>B.has(x)).length;
+    const union = new Set([...A, ...B]).size;
+    return union ? inter/union : 0;
+  }
+  private getStepHint(sessionId: string): string {
+    const hints = [
+      'Here’s another way to think about it. What patterns do you notice?',
+      'Let me give you a hint. Try breaking it into smaller parts.',
+      'Good effort! Consider this approach instead. What’s the first step?',
+      'Think about what we just learned. How does it apply here?',
+      'Let’s look at this differently. What information do we have?',
+      'Remember our previous example. What was similar about it?',
+      'Take your time with this one. What are we trying to find?',
+      'You’re on the right track. What comes next?',
+      'Let’s review the concept. What’s the key idea?'
+    ];
+    return hints[(sessionId.charCodeAt(0)+Date.now())%hints.length];
+  }
+}
+
+export const guardrails = new TutorGuardrails();
