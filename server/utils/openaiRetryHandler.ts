@@ -17,6 +17,12 @@ const DEFAULT_RETRY_CONFIG: RetryConfig = {
   maxRetries: 4
 };
 
+// Faster retry config for voice interactions (needs quick response)
+export const VOICE_RETRY_CONFIG: RetryConfig = {
+  delays: [100, 200, 400], // 100ms, 200ms, 400ms
+  maxRetries: 2 // Max 3 attempts total
+};
+
 export interface OpenAIRetryResult<T> {
   result?: T;
   usedFallback: boolean;
@@ -27,14 +33,23 @@ export interface OpenAIRetryResult<T> {
 export async function retryOpenAICall<T>(
   operation: () => Promise<T>,
   config: RetryConfig = DEFAULT_RETRY_CONFIG,
-  onRetry?: (context: RetryContext) => void
+  onRetry?: (context: RetryContext) => void,
+  timeout: number = 30000 // Default 30s timeout
 ): Promise<OpenAIRetryResult<T>> {
   let lastError: Error | undefined;
   let retryCount = 0;
 
   for (let attempt = 0; attempt <= config.maxRetries; attempt++) {
     try {
-      const result = await operation();
+      // Add timeout wrapper around operation
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error('Operation timeout')), timeout);
+      });
+      
+      const result = await Promise.race([
+        operation(),
+        timeoutPromise
+      ]);
       return {
         result,
         usedFallback: false,

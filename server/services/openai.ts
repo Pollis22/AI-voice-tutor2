@@ -6,7 +6,7 @@ import { TutorPlan, TUTOR_PLAN_SCHEMA } from '../types/conversationState';
 import { LessonContext, SUBJECT_PROMPTS, ASR_CONFIG } from '../types/lessonContext';
 import { lessonService } from './lessonService';
 import { debugLogger } from '../utils/debugLogger';
-import { retryOpenAICall, validateAndLogOpenAIKey, getRedactedOrgId, type OpenAIRetryResult } from '../utils/openaiRetryHandler';
+import { retryOpenAICall, validateAndLogOpenAIKey, getRedactedOrgId, VOICE_RETRY_CONFIG, type OpenAIRetryResult } from '../utils/openaiRetryHandler';
 import { openaiCircuitBreaker } from './circuitBreaker';
 import { userQueueManager } from './userQueueManager';
 import { semanticCache } from './semanticCache';
@@ -271,9 +271,9 @@ class OpenAIService {
               tools: [TUTOR_PLAN_SCHEMA],
               tool_choice: { type: "function", function: { name: "tutor_plan" } }
             });
-          }, undefined, (retryContext) => {
+          }, VOICE_RETRY_CONFIG, (retryContext) => {
             console.log(`[OpenAI] Retry ${retryContext.attempt}/${retryContext.totalAttempts} after:`, retryContext.lastError?.message);
-          });
+          }, 3000); // 3 second timeout for voice interactions
         });
         
         // Handle retry result
