@@ -253,9 +253,9 @@ function getLessonFallbacks(subject: string): string[] {
   const fallbacks: Record<string, string[]> = {
     math: [
       "Let's work through this step by step. What number comes after 2?",
-      "Good thinking! Can you count from 1 to 5 for me?",
-      "That's a great question about numbers! How many fingers do you have on one hand?",
-      "Let's practice counting together. Can you show me three fingers?",
+      "Great effort! If you have 2 apples and get 1 more, how many total?",
+      "That's a good question about numbers! What comes after 3 when counting?",
+      "Let's practice addition together. What's 2 plus 2?",
       "Excellent effort with math! What's 1 plus 1?"
     ],
     english: [

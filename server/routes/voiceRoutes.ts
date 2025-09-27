@@ -7,6 +7,8 @@ import { telemetryManager } from '../services/sessionTelemetry';
 import { conversationManager } from '../services/conversationManager';
 import { userQueueManager } from '../services/userQueueManager';
 import { inputGatingService } from '../services/inputGating';
+import { guardrails } from '../services/guardrails';
+import { hardBlockIfBanned } from '../services/phraseGuard';
 
 const router = express.Router();
 
@@ -221,9 +223,9 @@ router.post('/generate-response', async (req, res) => {
     const fallbackResponses: Record<string, string[]> = {
       math: [
         "Let's work through this step by step. What number comes after 2?",
-        "Good thinking! Can you count from 1 to 5 for me?",
-        "That's a great question about numbers! How many fingers do you have on one hand?",
-        "Let's practice counting together. Can you show me three fingers?"
+        "Great effort! If you have 2 apples and get 1 more, how many total?",
+        "That's a good question about numbers! What comes after 3 when counting?",
+        "Let's practice addition. What's 1 plus 1?"
       ],
       english: [
         "Let's explore words together! Can you tell me a word that names something?",
@@ -265,6 +267,12 @@ router.post('/generate-response', async (req, res) => {
       (req.session as any)[sessionKey] = [];
       selectedResponse = responses[Math.floor(Math.random() * responses.length)];
     }
+    
+    // CRITICAL: Apply phrase guards to prevent ableist content
+    selectedResponse = hardBlockIfBanned(selectedResponse);
+    selectedResponse = guardrails.sanitizeTutorQuestion(selectedResponse);
+    selectedResponse = guardrails.avoidRepeat(sessionId || 'default', selectedResponse);
+    selectedResponse = guardrails.enforceFormat(selectedResponse);
     
     // Track this response (keep only last 3 responses for better variety)
     const updatedHistory = [...recentResponses.slice(-2), selectedResponse];
