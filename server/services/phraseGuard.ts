@@ -1,19 +1,34 @@
-// Minimal runtime sanitizer + topic guard (no external deps)
-export const BANNED_SNIPPETS = [
-  'show me three fingers',
-  'how many fingers do you have',
+// Enhanced runtime sanitizer + topic guard with regex patterns
+export const BANNED_PATTERNS = [
+  'show me.*fingers',
+  'hold up.*fingers', 
+  'count.*your.*fingers',
+  'how many fingers.*you have',
   'fingers on your hand',
+  'use your hand',
+  'with your hand',
   'raise your hand',
   'stand up',
-  'jump up',
+  'sit down',
   'walk to',
   'run around',
+  'jump up',
+  'look at your',
   'touch your',
+  'point to your',
   'clap your hands',
-  'look at your'
+  'can you see',
+  'can you hear',
+  'can you feel'
 ];
 
 const SAFE_REPLACEMENTS: Record<string,string> = {
+  'your hand': 'a hand',
+  'your fingers': 'fingers',
+  'you have': 'there are',
+  'can you': 'let\'s',
+  'show me': 'think about',
+  'count on your': 'count using',
   'how many fingers do you have': 'how many fingers are typically on a hand',
   'fingers on your hand': 'fingers on a hand',
   'raise your hand': 'what would you say',
@@ -23,7 +38,8 @@ const SAFE_REPLACEMENTS: Record<string,string> = {
   'run around': 'imagine moving around',
   'touch your': 'point to where a',
   'clap your hands': 'count the claps: clap, clap',
-  'look at your': 'think about a'
+  'look at your': 'think about a',
+  'point to': 'name'
 };
 
 export function sanitizeInclusive(text: string): string {
@@ -35,10 +51,28 @@ export function sanitizeInclusive(text: string): string {
 }
 
 export function enforceTwoSentenceQuestion(text: string): string {
-  const parts = (text.match(/[^.!?]+[.!?]+/g) ?? [text]).slice(0,2);
-  let out = parts.join(' ').trim();
-  if (!/\?$/.test(out)) out = out.replace(/[.!?]+$/, '').trim() + '. What do you think?';
-  return out;
+  // Split into sentences
+  const sentences = text.match(/[^.!?]+[.!?]+/g) || [text];
+  
+  // Take only first 2 sentences
+  let result = sentences.slice(0, 2).join(' ').trim();
+  
+  // Ensure ends with question - randomized endings
+  if (!result.endsWith('?')) {
+    const endings = [
+      "What do you think?",
+      "Can you try it?",
+      "What's your answer?", 
+      "Ready to solve this?",
+      "How does that sound?",
+      "Does that make sense?",
+      "Ready to continue?"
+    ];
+    const ending = endings[Math.floor(Math.random() * endings.length)];
+    result = result.replace(/[.!?]?\s*$/, '. ') + ending;
+  }
+  
+  return result;
 }
 
 export function topicGuard(text: string, topic?: string): string {
@@ -51,16 +85,79 @@ export function topicGuard(text: string, topic?: string): string {
 export function antiRepeat(sessionId: string, text: string, store: Map<string,string[]>): string {
   const key = sessionId || 'default';
   const recent = store.get(key) ?? [];
-  const norm = (x: string) => x.toLowerCase().replace(/\s+/g,' ').trim();
-  const dup = recent.some(r => norm(r) === norm(text));
-  if (dup) text = "Here's another way to think about it. What pattern do you notice?";
+  const normalized = text.toLowerCase().replace(/\s+/g,' ').trim();
+  
+  // Check for exact or near-exact repeats using similarity
+  const isRepeat = recent.some(r => {
+    const recentNorm = r.toLowerCase().replace(/\s+/g,' ').trim();
+    if (recentNorm === normalized) return true;
+    const similarity = getSimilarity(recentNorm, normalized);
+    return similarity > 0.85;
+  });
+  
+  if (isRepeat) {
+    const alternatives = [
+      "Let me try explaining differently. What's 2 plus 1?",
+      "Here's another approach. If you have 2 apples and get 1 more, how many total?",
+      "Think about it this way. What number is one more than 2?",
+      "Let's use a different example. Count: 1, 2, and then?",
+      "Try breaking it down. Start at 2 and add 1, what do you get?",
+      "Here's another way to think about it. What pattern do you notice?",
+      "Let me give you a hint. Try breaking it into smaller parts.",
+      "Good effort! Consider this approach instead. What's the first step?"
+    ];
+    const alt = alternatives[Math.floor(Math.random() * alternatives.length)];
+    
+    if (process.env.TUTOR_DEBUG_CORRECTIONS === 'true') {
+      console.log('[AntiRepeat] Replaced repetitive response with:', alt);
+    }
+    
+    return alt;
+  }
+  
+  // Store this response
   recent.push(text);
   if (recent.length > 3) recent.shift();
   store.set(key, recent);
+  
   return text;
 }
 
+function getSimilarity(a: string, b: string): number {
+  const wordsA = new Set(a.split(/\s+/));
+  const wordsB = new Set(b.split(/\s+/));
+  
+  // Convert sets to arrays for intersection calculation
+  const arrA = Array.from(wordsA);
+  const arrB = Array.from(wordsB);
+  
+  const intersection = arrA.filter(x => wordsB.has(x));
+  const unionSize = new Set(arrA.concat(arrB)).size;
+  
+  return unionSize > 0 ? intersection.length / unionSize : 0;
+}
+
 export function hardBlockIfBanned(text: string): string {
-  const bad = BANNED_SNIPPETS.find(b => text.toLowerCase().includes(b));
-  return bad ? "Let's count together using numbers. What number comes after 2?" : text;
+  const lower = text.toLowerCase();
+  
+  for (const bannedPattern of BANNED_PATTERNS) {
+    if (new RegExp(bannedPattern, 'i').test(lower)) {
+      if (process.env.TUTOR_DEBUG_CORRECTIONS === 'true') {
+        console.warn('[PhraseGuard] Blocked banned phrase pattern:', bannedPattern);
+      }
+      
+      // Randomized fallbacks to prevent repetition
+      const safeAlternatives = [
+        "Let's count together using numbers. What number comes after 2?",
+        "Let's practice with numbers. Can you tell me what 1 plus 2 equals?",
+        "Here's a counting question. What comes after the number 2?", 
+        "Let's work with numbers. If we start at 1 and count up, what's next after 2?",
+        "Time for some number practice. What number follows 2 when counting?"
+      ];
+      
+      return safeAlternatives[Math.floor(Math.random() * safeAlternatives.length)];
+    }
+  }
+  
+  return text;
 }

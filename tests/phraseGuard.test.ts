@@ -1,11 +1,12 @@
-import { BANNED_SNIPPETS, hardBlockIfBanned, sanitizeInclusive, enforceTwoSentenceQuestion, antiRepeat } from '../server/services/phraseGuard';
+import { BANNED_PATTERNS, hardBlockIfBanned, sanitizeInclusive, enforceTwoSentenceQuestion, antiRepeat } from '../server/services/phraseGuard';
 
 describe('P0 Hotfix: Phrase Guard Tests', () => {
   test('hardBlockIfBanned should catch and replace all banned phrases', () => {
-    BANNED_SNIPPETS.forEach(banned => {
-      const result = hardBlockIfBanned(`Let's try this. ${banned} to continue.`);
-      expect(result).toBe("Let's count together using numbers. What number comes after 2?");
-      expect(result).not.toContain(banned);
+    BANNED_PATTERNS.forEach(banned => {
+      const testText = `Let's try this. ${banned.replace(/\.\*/g, ' three')} to continue.`;
+      const result = hardBlockIfBanned(testText);
+      expect(result).toMatch(/Let's (count together|practice|work)/);
+      expect(result).not.toContain('fingers');
     });
   });
 
@@ -57,8 +58,9 @@ describe('P0 Hotfix: Phrase Guard Tests', () => {
       result = sanitizeInclusive(result);
       
       // Check no banned phrases remain
-      BANNED_SNIPPETS.forEach(banned => {
-        expect(result.toLowerCase()).not.toContain(banned.toLowerCase());
+      BANNED_PATTERNS.forEach(banned => {
+        const pattern = new RegExp(banned, 'i');
+        expect(pattern.test(result)).toBe(false);
       });
       
       // Must end with question
