@@ -316,7 +316,7 @@ class OpenAIService {
               };
               
               // Use only the next_prompt as the spoken content
-              content = this.enforceConcisenessAndQuestion(plan.next_prompt);
+              rawContent = this.enforceConcisenessAndQuestion(plan.next_prompt);
               
               // Store plan in conversation manager
               if (context.sessionId) {
@@ -329,8 +329,8 @@ class OpenAIService {
         }
 
         // Step 6: Anti-repeat & coherence check
-        const deduplicatedContent = this.checkAndHandleRepeat(content, context.sessionId, subject, lessonId);
-        content = deduplicatedContent.content;
+        const deduplicatedContent = this.checkAndHandleRepeat(rawContent, context.sessionId, subject, lessonId);
+        let content = deduplicatedContent.content;
         const wasRepeated = deduplicatedContent.wasRepeated;
 
         // Answer checking handled by early gate - this is legacy
