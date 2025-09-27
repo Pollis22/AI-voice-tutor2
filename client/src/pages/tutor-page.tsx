@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useEffect, useRef, useState } from "react";
 import { TutorErrorBoundary } from "@/components/tutor-error-boundary";
+import { NetworkAwareWrapper } from "@/components/network-aware-wrapper";
 import { usePerformanceMonitor } from "@/hooks/use-performance-monitor";
 import { AGENTS, GREETINGS, type AgentLevel } from "@/agents";
 
@@ -357,11 +358,26 @@ export default function TutorPage() {
 
   return (
     <TutorErrorBoundary>
-      <div className="min-h-screen bg-background">
-        <NavigationHeader />
-        
-        <div className="flex-1 p-4 sm:p-6">
-          <div className="max-w-4xl mx-auto space-y-4 sm:space-y-6">
+      <NetworkAwareWrapper 
+        onOffline={() => {
+          console.log('Network went offline');
+          setNetworkError('Connection lost. Please check your internet connection.');
+          setWidgetStatus('error');
+        }}
+        onOnline={() => {
+          console.log('Network came back online');
+          setNetworkError(null);
+          if (isStarted) {
+            // Attempt to reinitialize widget if user was in a session
+            setWidgetStatus('loading');
+          }
+        }}
+      >
+        <div className="min-h-screen bg-background">
+          <NavigationHeader />
+          
+          <div className="flex-1 p-4 sm:p-6">
+            <div className="max-w-4xl mx-auto space-y-4 sm:space-y-6">
           
           {/* Header */}
           <div className="text-center">
@@ -581,6 +597,7 @@ export default function TutorPage() {
         </div>
       </div>
     </div>
+      </NetworkAwareWrapper>
     </TutorErrorBoundary>
   );
 }
