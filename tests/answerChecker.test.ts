@@ -1,210 +1,190 @@
 import { describe, it, expect } from '@jest/globals';
-import { robustAnswerChecker } from '../server/services/answerChecker';
+import { answerChecker } from '../server/services/answerChecker';
 
-describe('RobustAnswerChecker', () => {
-  describe('checkMathAnswer', () => {
+describe('AnswerChecker', () => {
+  describe('checkAnswer for math', () => {
     it('should correctly identify correct numeric answers', () => {
       const testCases = [
-        { user: '4', expected: '4', type: 'math' as const },
-        { user: 'four', expected: '4', type: 'math' as const },
-        { user: '2.5', expected: '2.5', type: 'math' as const },
-        { user: '3', expected: '3', type: 'math' as const }
+        { expected: '4', user: '4' },
+        { expected: '4', user: 'four' },
+        { expected: '2.5', user: '2.5' },
+        { expected: '3', user: '3' }
       ];
 
-      testCases.forEach(({ user, expected, type }) => {
-        const result = robustAnswerChecker.checkAnswer(user, expected, type);
-        expect(result.isCorrect).toBe(true);
-        expect(result.method).toBe('math');
-        expect(result.confidence).toBeGreaterThan(0.9);
+      testCases.forEach(({ expected, user }) => {
+        const result = answerChecker.checkAnswer(expected, user, 'math');
+        expect(result.ok).toBe(true);
+        expect(result.msg).toContain('correct');
       });
     });
 
     it('should correctly identify incorrect numeric answers', () => {
-      const result = robustAnswerChecker.checkAnswer('5', '4', 'math');
+      const result = answerChecker.checkAnswer('4', '5', 'math');
       
-      expect(result.isCorrect).toBe(false);
-      expect(result.method).toBe('math');
-      expect(result.correction).toContain('The correct answer is 4');
-      expect(result.explanation).toContain('difference is 1');
+      expect(result.ok).toBe(false);
+      expect(result.msg).toContain('Not quite');
     });
 
     it('should handle word numbers', () => {
       const testCases = [
-        { user: 'three', expected: '3' },
-        { user: 'five', expected: '5' },
-        { user: 'zero', expected: '0' },
-        { user: 'ten', expected: '10' }
+        { expected: '3', user: 'three' },
+        { expected: '5', user: 'five' },
+        { expected: '0', user: 'zero' },
+        { expected: '10', user: 'ten' }
       ];
 
-      testCases.forEach(({ user, expected }) => {
-        const result = robustAnswerChecker.checkAnswer(user, expected, 'math');
-        expect(result.isCorrect).toBe(true);
+      testCases.forEach(({ expected, user }) => {
+        const result = answerChecker.checkAnswer(expected, user, 'math');
+        expect(result.ok).toBe(true);
       });
     });
 
-    it('should provide helpful explanations for close answers', () => {
-      const result = robustAnswerChecker.checkAnswer('3', '4', 'math');
-      
-      expect(result.explanation).toContain('adding one more');
+    it('should handle mathematical expressions', () => {
+      const result = answerChecker.checkAnswer('4', '2 + 2', 'math');
+      expect(result.ok).toBe(true);
     });
   });
 
-  describe('checkMCQAnswer', () => {
-    it('should handle exact option matches', () => {
-      const options = ['apple', 'banana', 'cherry'];
-      const result = robustAnswerChecker.checkAnswer('banana', 'banana', 'mcq', options);
-      
-      expect(result.isCorrect).toBe(true);
-      expect(result.method).toBe('mcq');
-      expect(result.confidence).toBe(0.95);
-    });
-
+  describe('checkAnswer for MCQ', () => {
     it('should handle option letters', () => {
-      const options = ['apple', 'banana', 'cherry'];
-      const result = robustAnswerChecker.checkAnswer('B', 'banana', 'mcq', options);
-      
-      expect(result.isCorrect).toBe(true);
-      expect(result.method).toBe('mcq');
-      expect(result.confidence).toBe(0.9);
+      const result = answerChecker.checkAnswer('b', 'b', 'mcq');
+      expect(result.ok).toBe(true);
+      expect(result.msg).toContain('right answer');
     });
 
     it('should handle option numbers', () => {
-      const options = ['apple', 'banana', 'cherry'];
-      const result = robustAnswerChecker.checkAnswer('2', 'banana', 'mcq', options);
-      
-      expect(result.isCorrect).toBe(true);
-      expect(result.method).toBe('mcq');
+      const result = answerChecker.checkAnswer('b', '2', 'mcq');
+      expect(result.ok).toBe(true);
     });
 
-    it('should use fuzzy matching for partial answers', () => {
-      const options = ['apple', 'banana', 'cherry'];
-      const result = robustAnswerChecker.checkAnswer('banan', 'banana', 'mcq', options);
-      
-      expect(result.isCorrect).toBe(true);
-      expect(result.method).toBe('mcq');
+    it('should handle option text', () => {
+      const result = answerChecker.checkAnswer('b', 'option b', 'mcq');
+      expect(result.ok).toBe(true);
     });
 
     it('should reject incorrect answers', () => {
-      const options = ['apple', 'banana', 'cherry'];
-      const result = robustAnswerChecker.checkAnswer('orange', 'banana', 'mcq', options);
-      
-      expect(result.isCorrect).toBe(false);
-      expect(result.correction).toContain('The correct answer is banana');
+      const result = answerChecker.checkAnswer('b', 'c', 'mcq');
+      expect(result.ok).toBe(false);
+      expect(result.msg).toContain('Actually, the correct answer is');
     });
   });
 
-  describe('checkShortTextAnswer', () => {
+  describe('checkAnswer for short text', () => {
     it('should handle exact matches', () => {
-      const result = robustAnswerChecker.checkAnswer('cat', 'cat', 'short');
-      
-      expect(result.isCorrect).toBe(true);
-      expect(result.method).toBe('exact');
-      expect(result.confidence).toBe(0.95);
+      const result = answerChecker.checkAnswer('cat', 'cat', 'short');
+      expect(result.ok).toBe(true);
+      expect(result.msg).toContain('Exactly right');
     });
 
-    it('should handle fuzzy matches', () => {
-      const testCases = [
-        { user: 'hello', expected: 'helo' }, // typo
-        { user: 'the cat', expected: 'cat' }, // extra words
-        { user: 'HELLO', expected: 'hello' }, // case difference
-      ];
+    it('should handle fuzzy matches with small edit distance', () => {
+      const result = answerChecker.checkAnswer('cat', 'cats', 'short');
+      expect(result.ok).toBe(true);
+    });
 
-      testCases.forEach(({ user, expected }) => {
-        const result = robustAnswerChecker.checkAnswer(user, expected, 'short');
-        expect(result.isCorrect).toBe(true);
-        expect(result.method).toBe('fuzzy');
-      });
+    it('should handle substring matches', () => {
+      const result = answerChecker.checkAnswer('cat', 'the cat runs', 'short');
+      expect(result.ok).toBe(true);
+      expect(result.msg).toContain('right');
     });
 
     it('should reject very different answers', () => {
-      const result = robustAnswerChecker.checkAnswer('elephant', 'cat', 'short');
-      
-      expect(result.isCorrect).toBe(false);
-      expect(result.correction).toContain('The correct answer is cat');
+      const result = answerChecker.checkAnswer('cat', 'elephant', 'short');
+      expect(result.ok).toBe(false);
+      expect(result.msg).toContain('Close try');
     });
   });
 
-  describe('checkOpenAnswer', () => {
-    it('should be lenient with open-ended questions', () => {
-      const result = robustAnswerChecker.checkAnswer('I think it is blue', 'blue', 'open');
-      
-      expect(result.isCorrect).toBe(true);
-      expect(result.method).toBe('fuzzy');
+  describe('auto type detection', () => {
+    it('should detect MCQ patterns', () => {
+      const result = answerChecker.checkAnswer('a', 'a', 'auto');
+      expect(result.ok).toBe(true);
     });
 
-    it('should check for keywords in answers', () => {
-      const result = robustAnswerChecker.checkAnswer('The color is red and bright', 'red color', 'open');
-      
-      expect(result.isCorrect).toBe(true);
+    it('should detect math patterns', () => {
+      const result = answerChecker.checkAnswer('4', '4', 'auto');
+      expect(result.ok).toBe(true);
     });
 
-    it('should provide suggestions for incorrect open answers', () => {
-      const result = robustAnswerChecker.checkAnswer('yellow', 'blue sky', 'open');
-      
-      expect(result.isCorrect).toBe(false);
-      expect(result.explanation).toContain('Consider including: blue sky');
+    it('should default to short text', () => {
+      const result = answerChecker.checkAnswer('hello', 'hello', 'auto');
+      expect(result.ok).toBe(true);
+    });
+  });
+
+  describe('normalize function', () => {
+    it('should convert word numbers to digits', () => {
+      const normalized = answerChecker.normalize('three plus two');
+      expect(normalized).toBe('3 + 2');
+    });
+
+    it('should clean special characters', () => {
+      const normalized = answerChecker.normalize('hello! world?');
+      expect(normalized).toBe('hello world');
+    });
+
+    it('should handle case conversion', () => {
+      const normalized = answerChecker.normalize('HELLO World');
+      expect(normalized).toBe('hello world');
+    });
+  });
+
+  describe('safeEval function', () => {
+    it('should evaluate simple math expressions', () => {
+      const testCases = [
+        { expr: '2 + 3', expected: 5 },
+        { expr: '5 - 2', expected: 3 },
+        { expr: '4 * 3', expected: 12 },
+        { expr: '8 / 2', expected: 4 }
+      ];
+
+      testCases.forEach(({ expr, expected }) => {
+        const result = answerChecker.safeEval(expr);
+        expect(result).toBe(expected);
+      });
+    });
+
+    it('should handle division by zero', () => {
+      const result = answerChecker.safeEval('5 / 0');
+      expect(result).toBeNull();
+    });
+
+    it('should reject complex expressions', () => {
+      const result = answerChecker.safeEval('Math.pow(2, 3)');
+      expect(result).toBeNull();
+    });
+  });
+
+  describe('Levenshtein distance', () => {
+    it('should calculate edit distance correctly', () => {
+      const testCases = [
+        { a: 'cat', b: 'cat', expected: 0 },
+        { a: 'cat', b: 'bat', expected: 1 },
+        { a: 'hello', b: 'helo', expected: 1 },
+        { a: 'kitten', b: 'sitting', expected: 3 }
+      ];
+
+      testCases.forEach(({ a, b, expected }) => {
+        const result = answerChecker.lev(a, b);
+        expect(result).toBe(expected);
+      });
     });
   });
 
   describe('edge cases', () => {
-    it('should handle empty answers', () => {
-      const result = robustAnswerChecker.checkAnswer('', 'cat', 'short');
-      
-      expect(result.isCorrect).toBe(false);
-      expect(result.confidence).toBeLessThan(0.5);
+    it('should handle empty strings', () => {
+      const result = answerChecker.checkAnswer('cat', '', 'short');
+      expect(result.ok).toBe(false);
     });
 
-    it('should handle special characters and punctuation', () => {
-      const result = robustAnswerChecker.checkAnswer('hello!', 'hello', 'short');
-      
-      expect(result.isCorrect).toBe(true);
+    it('should handle malformed MCQ expected answers', () => {
+      const result = answerChecker.checkAnswer('xyz', 'a', 'mcq');
+      expect(result.ok).toBe(false);
+      expect(result.msg).toContain("couldn't read");
     });
 
-    it('should handle fractions in math', () => {
-      const result = robustAnswerChecker.checkAnswer('1.5', '1.5', 'math');
-      
-      expect(result.isCorrect).toBe(true);
-      expect(result.method).toBe('math');
-    });
-
-    it('should handle negative numbers', () => {
-      const result = robustAnswerChecker.checkAnswer('-5', '-5', 'math');
-      
-      expect(result.isCorrect).toBe(true);
-      expect(result.method).toBe('math');
-    });
-  });
-
-  describe('confidence scores', () => {
-    it('should provide appropriate confidence scores', () => {
-      const exactMatch = robustAnswerChecker.checkAnswer('cat', 'cat', 'short');
-      const fuzzyMatch = robustAnswerChecker.checkAnswer('cats', 'cat', 'short');
-      const wrongAnswer = robustAnswerChecker.checkAnswer('dog', 'cat', 'short');
-      
-      expect(exactMatch.confidence).toBeGreaterThan(fuzzyMatch.confidence);
-      expect(fuzzyMatch.confidence).toBeGreaterThan(wrongAnswer.confidence);
-    });
-
-    it('should return high confidence for math exact matches', () => {
-      const result = robustAnswerChecker.checkAnswer('4', '4', 'math');
-      
-      expect(result.confidence).toBeGreaterThanOrEqual(0.95);
-    });
-  });
-
-  describe('error handling', () => {
-    it('should handle unknown question types gracefully', () => {
-      const result = robustAnswerChecker.checkAnswer('answer', 'expected', 'unknown' as any);
-      
-      expect(result).toBeDefined();
-      expect(result.method).toBe('fuzzy');
-    });
-
-    it('should handle malformed inputs', () => {
-      const result = robustAnswerChecker.checkAnswer(null as any, 'expected', 'short');
-      
-      expect(result).toBeDefined();
-      expect(result.isCorrect).toBe(false);
+    it('should handle special characters in math', () => {
+      const result = answerChecker.checkAnswer('4', '2+2', 'math');
+      expect(result.ok).toBe(true);
     });
   });
 });

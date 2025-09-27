@@ -71,10 +71,12 @@ export class TutorGuardrails {
 
   // --- helpers ---
   private similarity(a: string, b: string): number {
-    const A = new Set(a.toLowerCase().split(/\s+/));
-    const B = new Set(b.toLowerCase().split(/\s+/));
-    const inter = [...A].filter(x=>B.has(x)).length;
-    const union = new Set([...A, ...B]).size;
+    const A = a.toLowerCase().split(/\s+/);
+    const B = b.toLowerCase().split(/\s+/);
+    const setA = new Set(A);
+    const setB = new Set(B);
+    const inter = A.filter(x=>setB.has(x)).length;
+    const union = new Set(A.concat(B)).size;
     return union ? inter/union : 0;
   }
   

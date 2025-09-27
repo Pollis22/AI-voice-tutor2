@@ -11,10 +11,10 @@ import { openaiCircuitBreaker } from './circuitBreaker';
 import { userQueueManager } from './userQueueManager';
 import { semanticCache } from './semanticCache';
 import { inputGatingService } from './inputGating';
-import { compareAnswers, normalizeAnswer, mathAnswersEqual, fuzzyTextMatch, normalizeMcqAnswer } from '../utils/answerNormalization';
+import { normalizeAnswer } from '../utils/answerNormalization';
 import { voiceIntegration } from '../modules/voiceIntegration';
 import { guardrails } from './guardrails';
-import { robustAnswerChecker } from './answerChecker';
+import { answerChecker } from './answerChecker';
 
 // Validate and log API key status on startup
 const keyStatus = validateAndLogOpenAIKey();
@@ -102,16 +102,15 @@ class OpenAIService {
         if (questionState?.expectedAnswer && questionState.currentQuestion) {
           console.log(`[AnswerGate] Checking answer for session ${sessionId}: "${normalizedMessage}"`);
           
-          const checkResult = robustAnswerChecker.checkAnswer(
-            normalizedMessage,
+          const checkResult = answerChecker.checkAnswer(
             questionState.expectedAnswer,
-            questionState.questionType || 'short',
-            questionState.options
+            normalizedMessage,
+            (questionState.questionType === 'open' ? 'short' : questionState.questionType) || 'auto'
           );
           
           let acknowledgmentContent: string;
           
-          if (checkResult.isCorrect) {
+          if (checkResult.ok) {
             // CORRECT ANSWER: Acknowledge + ask next question
             const correctPhrases = [
               "Excellent! That's correct.",
@@ -131,7 +130,7 @@ class OpenAIService {
           } else {
             // INCORRECT ANSWER: Provide correction + ask follow-up
             const followUpQuestion = this.getFollowUpQuestion(subject, questionState.currentQuestion);
-            acknowledgmentContent = checkResult.correction || `Not quite. The correct answer is ${questionState.expectedAnswer}. Let me help you understand this better. ${followUpQuestion}`;
+            acknowledgmentContent = checkResult.msg;
             
             // CRITICAL: Set follow-up question state before returning (fix for multi-turn remediation)
             conversationManager.clearQuestionState(sessionId);
@@ -141,7 +140,7 @@ class OpenAIService {
             }
           }
           
-          console.log(`[AnswerGate] ${checkResult.isCorrect ? 'CORRECT' : 'INCORRECT'} answer processed`);
+          console.log(`[AnswerGate] ${checkResult.ok ? 'CORRECT' : 'INCORRECT'} answer processed`);
           
           // Apply guardrails to acknowledgment content
           acknowledgmentContent = guardrails.sanitizeTutorQuestion(acknowledgmentContent);
@@ -151,18 +150,18 @@ class OpenAIService {
           return {
             content: acknowledgmentContent,
             plan: {
-              goal: checkResult.isCorrect ? 'Acknowledge correct answer and continue' : 'Correct wrong answer and reteach',
-              plan: [checkResult.isCorrect ? 'Acknowledge success' : 'Provide correction', 'Ask next question'],
+              goal: checkResult.ok ? 'Acknowledge correct answer and continue' : 'Correct wrong answer and reteach',
+              plan: [checkResult.ok ? 'Acknowledge success' : 'Provide correction', 'Ask next question'],
               next_prompt: acknowledgmentContent
             },
             topic: subject,
-            repairMove: !checkResult.isCorrect,
+            repairMove: !checkResult.ok,
             usedFallback: false,
             queueDepth: userQueue.getQueueDepth(),
             retryCount: 0,
             tokensUsed: 0,
             model: 'answer-acknowledgment-gate',
-            banner: checkResult.isCorrect ? 'Correct answer acknowledged' : 'Incorrect answer corrected',
+            banner: checkResult.ok ? 'Correct answer acknowledged' : 'Incorrect answer corrected',
             usedCache: false,
             breakerOpen: false
           };
@@ -262,7 +261,7 @@ Response rules:
               { role: "system", content: systemPrompt },
               { role: "user", content: normalizedMessage }
             ];
-            const filteredMessages = guardrails.preventUserFabrication(rawMessages);
+            const filteredMessages = guardrails.preventUserFabrication(rawMessages) as any[];
             
             return await openai.chat.completions.create({
               model,
@@ -336,33 +335,7 @@ Response rules:
         content = deduplicatedContent.content;
         const wasRepeated = deduplicatedContent.wasRepeated;
 
-        // Step 6.5: Answer checking integration (as specified in markdown implementation guide)
-        if (context.lessonContext?.expectedAnswer || context.lessonContext?.currentQuestion) {
-          try {
-            const questionType = context.lessonContext?.questionType || 
-                               (subject === 'math' ? 'math' : 'short');
-            
-            const checkResult = robustAnswerChecker.checkAnswer(
-              normalizedMessage,
-              context.lessonContext.expectedAnswer || '',
-              questionType as 'short' | 'mcq' | 'math' | 'open',
-              context.lessonContext?.options
-            );
-            
-            if (!checkResult.isCorrect && checkResult.correction) {
-              content = `${checkResult.correction} ${content}`;
-              
-              // Log answer checking when DEBUG_TUTOR=1
-              if (process.env.DEBUG_TUTOR === '1') {
-                console.log(`[Answer Check] Method: ${checkResult.method}, Incorrect answer corrected`);
-              }
-            } else if (checkResult.isCorrect && process.env.DEBUG_TUTOR === '1') {
-              console.log(`[Answer Check] Method: ${checkResult.method}, Correct answer recognized`);
-            }
-          } catch (error) {
-            console.warn('[Answer Check] Error during answer validation:', error);
-          }
-        }
+        // Answer checking handled by early gate - this is legacy
 
         // Step 7: Cache the successful response (only if not repeated)
         if (!wasRepeated) {
@@ -392,9 +365,10 @@ Response rules:
         // Update final response with guardrail-processed content
         finalResponse.content = content;
 
-        // Store question state if response contains a question (CRITICAL for answer acknowledgment)
+        // Store question state if response contains a question (CRITICAL for answer acknowledgment)  
+        const responseSubject = subject || lessonId.split('-')[0] || 'general';
         if (context.sessionId && content.includes('?')) {
-          this.storeQuestionInConversation(content, subject, context.sessionId);
+          this.storeQuestionInConversation(content, responseSubject, context.sessionId);
         }
 
         // Debug logging with scalability metrics
@@ -434,8 +408,9 @@ Response rules:
         errorResponse.content = guardrails.enforceFormat(errorResponse.content);
 
         // Store question state if fallback response contains a question
+        const errorSubject = subject || lessonId.split('-')[0] || 'general';
         if (context.sessionId && errorResponse.content.includes('?')) {
-          this.storeQuestionInConversation(errorResponse.content, subject, context.sessionId);
+          this.storeQuestionInConversation(errorResponse.content, errorSubject, context.sessionId);
         }
 
         // Log error details
@@ -550,13 +525,15 @@ Response rules:
 
   // Calculate similarity between two strings (simple Jaccard similarity)
   private calculateSimilarity(str1: string, str2: string): number {
-    const words1 = new Set(str1.split(/\s+/));
-    const words2 = new Set(str2.split(/\s+/));
+    const words1 = str1.split(/\s+/);
+    const words2 = str2.split(/\s+/);
+    const set1 = new Set(words1);
+    const set2 = new Set(words2);
     
-    const intersection = new Set([...words1].filter(x => words2.has(x)));
-    const union = new Set([...words1, ...words2]);
+    const intersection = words1.filter(x => set2.has(x));
+    const union = new Set(words1.concat(words2));
     
-    return union.size === 0 ? 0 : intersection.size / union.size;
+    return union.size === 0 ? 0 : intersection.length / union.size;
   }
 
   // Normalize response for comparison (remove punctuation, extra spaces, etc.)
@@ -931,18 +908,16 @@ Remember: You're not just teaching facts, you're building confidence and curiosi
     const answerType = subject === 'math' ? 'math' : 
                       /^[a-d]$/i.test(lastQuestion.expectedAnswer.trim()) ? 'mcq' : 'text';
     
-    const comparisonResult = compareAnswers(userInput, lastQuestion.expectedAnswer, {
-      type: answerType,
-      tolerance: 1e-6
-    });
+    // Use answerChecker instead
+    const checkResult = answerChecker.checkAnswer(lastQuestion.expectedAnswer, userInput, answerType as any);
     
     // Log telemetry when DEBUG_TUTOR=1
     if (process.env.DEBUG_TUTOR === '1') {
-      console.log(`[Answer Check] User: "${comparisonResult.normalizedUser}" vs Expected: "${comparisonResult.normalizedExpected}" | Method: ${comparisonResult.method} | Correct: ${comparisonResult.isCorrect}`);
+      console.log(`[Answer Check] User: "${userInput}" vs Expected: "${lastQuestion.expectedAnswer}" | Correct: ${checkResult.ok}`);
     }
     
-    // Check if the answer is correct
-    if (comparisonResult.isCorrect) {
+    // Check if the answer is correct  
+    if (checkResult.ok) {
       // Correct answer - provide positive feedback and next question
       this.lastAskedQuestions.delete(sessionId); // Clear the question
       
