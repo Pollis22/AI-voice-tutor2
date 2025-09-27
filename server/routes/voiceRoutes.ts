@@ -15,13 +15,17 @@ const router = express.Router();
 
 // Helper function to extract expected answer from a math question
 const extractExpectedAnswer = (question: string): string | null => {
-  // Extract answer from simple math questions
+  // Extract answer from math questions - expanded patterns
   const patterns = [
     /what(?:'s|\s+is)\s+(\d+)\s*([+\-*\/])\s*(\d+)/i,  // "What's 1 + 1?"
     /if you have (\d+) .+ and get (\d+) more/i,  // "If you have 2 apples and get 1 more"
     /what comes after (\d+)/i,  // "What comes after 2?"
     /(\d+)\s*plus\s*(\d+)/i,  // "2 plus 2"
-    /(\d+)\s*minus\s*(\d+)/i  // "5 minus 2"
+    /(\d+)\s*minus\s*(\d+)/i,  // "5 minus 2"
+    /(\d+)\s*times\s*(\d+)/i,  // "3 times 4"
+    /(\d+)\s*multiplied\s+by\s*(\d+)/i,  // "3 multiplied by 4"
+    /can you solve.*?(\d+)\s*([+\-*\/])\s*(\d+)/i,  // "Can you solve 3 + 3?"
+    /try this one.*?(\d+)\s*([+\-*\/])\s*(\d+)/i  // "Try this one. What's 5 minus 2?"
   ];
   
   for (const pattern of patterns) {
@@ -50,6 +54,20 @@ const extractExpectedAnswer = (question: string): string | null => {
         const a = parseInt(match[1]);
         const b = parseInt(match[2]);
         return String(a - b);
+      } else if (pattern === patterns[5] || pattern === patterns[6]) {
+        // Multiplication: "X times Y" or "X multiplied by Y"
+        const a = parseInt(match[1]);
+        const b = parseInt(match[2]);
+        return String(a * b);
+      } else if (pattern === patterns[7] || pattern === patterns[8]) {
+        // Complex patterns: "Can you solve X + Y?" or "Try this one"
+        const a = parseInt(match[1]);
+        const op = match[2];
+        const b = parseInt(match[3]);
+        if (op === '+') return String(a + b);
+        if (op === '-') return String(a - b);
+        if (op === '*') return String(a * b);
+        if (op === '/' && b !== 0) return String(Math.floor(a / b));
       }
     }
   }
