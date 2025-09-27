@@ -13,6 +13,8 @@ import { semanticCache } from './semanticCache';
 import { inputGatingService } from './inputGating';
 import { compareAnswers, normalizeAnswer, mathAnswersEqual, fuzzyTextMatch, normalizeMcqAnswer } from '../utils/answerNormalization';
 import { voiceIntegration } from '../modules/voiceIntegration';
+import { guardrails } from './guardrails';
+import { robustAnswerChecker } from './answerChecker';
 
 // Validate and log API key status on startup
 const keyStatus = validateAndLogOpenAIKey();
@@ -100,10 +102,10 @@ class OpenAIService {
         if (questionState?.expectedAnswer && questionState.currentQuestion) {
           console.log(`[AnswerGate] Checking answer for session ${sessionId}: "${normalizedMessage}"`);
           
-          const checkResult = voiceIntegration.checkAnswer(
-            questionState.questionType || 'short',
+          const checkResult = robustAnswerChecker.checkAnswer(
             normalizedMessage,
             questionState.expectedAnswer,
+            questionState.questionType || 'short',
             questionState.options
           );
           
@@ -140,6 +142,11 @@ class OpenAIService {
           }
           
           console.log(`[AnswerGate] ${checkResult.isCorrect ? 'CORRECT' : 'INCORRECT'} answer processed`);
+          
+          // Apply guardrails to acknowledgment content
+          acknowledgmentContent = guardrails.sanitizeTutorQuestion(acknowledgmentContent);
+          acknowledgmentContent = guardrails.avoidRepeat(sessionId, acknowledgmentContent);
+          acknowledgmentContent = guardrails.enforceFormat(acknowledgmentContent);
           
           return {
             content: acknowledgmentContent,
@@ -250,12 +257,16 @@ Response rules:
         // Step 5: Circuit-breaker protected OpenAI call
         const retryResult = await openaiCircuitBreaker.call(async () => {
           return await retryOpenAICall(async () => {
+            // Apply guardrails to prevent user fabrication
+            const rawMessages = [
+              { role: "system", content: systemPrompt },
+              { role: "user", content: normalizedMessage }
+            ];
+            const filteredMessages = guardrails.preventUserFabrication(rawMessages);
+            
             return await openai.chat.completions.create({
               model,
-              messages: [
-                { role: "system", content: systemPrompt },
-                { role: "user", content: normalizedMessage }
-              ],
+              messages: filteredMessages,
               temperature: LLM_CONFIG.temperature,
               max_tokens: LLM_CONFIG.maxTokens,
               top_p: LLM_CONFIG.topP,
@@ -331,10 +342,10 @@ Response rules:
             const questionType = context.lessonContext?.questionType || 
                                (subject === 'math' ? 'math' : 'short');
             
-            const checkResult = voiceIntegration.checkAnswer(
-              questionType as 'short' | 'mcq' | 'math' | 'open',
+            const checkResult = robustAnswerChecker.checkAnswer(
               normalizedMessage,
               context.lessonContext.expectedAnswer || '',
+              questionType as 'short' | 'mcq' | 'math' | 'open',
               context.lessonContext?.options
             );
             
@@ -373,6 +384,14 @@ Response rules:
           banner: wasRepeated ? "Generating fresh response" : undefined
         };
 
+        // Apply guardrails to final response content
+        content = guardrails.sanitizeTutorQuestion(content);
+        content = guardrails.avoidRepeat(context.sessionId || sessionId, content);
+        content = guardrails.enforceFormat(content);
+        
+        // Update final response with guardrail-processed content
+        finalResponse.content = content;
+
         // Store question state if response contains a question (CRITICAL for answer acknowledgment)
         if (context.sessionId && content.includes('?')) {
           this.storeQuestionInConversation(content, subject, context.sessionId);
@@ -408,6 +427,11 @@ Response rules:
           model,
           breakerOpen: openaiCircuitBreaker.isOpen()
         };
+
+        // Apply guardrails to error response content
+        errorResponse.content = guardrails.sanitizeTutorQuestion(errorResponse.content);
+        errorResponse.content = guardrails.avoidRepeat(context.sessionId || sessionId, errorResponse.content);
+        errorResponse.content = guardrails.enforceFormat(errorResponse.content);
 
         // Store question state if fallback response contains a question
         if (context.sessionId && errorResponse.content.includes('?')) {
