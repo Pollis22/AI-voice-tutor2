@@ -1,163 +1,227 @@
 import { useAuth } from "@/hooks/use-auth";
-import { useQuery } from "@tanstack/react-query";
 import { NavigationHeader } from "@/components/navigation-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { AlertCircle, CheckCircle, ExternalLink } from "lucide-react";
-import { useEffect, useState } from "react";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useEffect, useRef, useState } from "react";
+import { AGENTS, type AgentLevel } from "@/agents";
 
 declare global {
   namespace JSX {
     interface IntrinsicElements {
       'elevenlabs-convai': {
         'agent-id': string;
-        style: string;
+        'first-user-message'?: string;
+        'metadata-student-name'?: string;
+        'metadata-student-grade'?: string;
+        style?: string;
       };
     }
   }
 }
 
+const SUBJECT_STARTERS: Record<string, string> = {
+  general: "I'd like a quick skills check to see where I should start.",
+  math:    "I want to work on math today. Begin with a warm-up problem at my level.",
+  english: "I want help with reading/writing. Start with a short exercise at my level.",
+  spanish: "I want to practice Spanish. Start with simple call-and-response drills."
+};
+
+type ProgressNote = {
+  lastLevel?: string;
+  lastSubject?: string;
+  lastSummary?: string;
+  updatedAt?: string;
+};
+
+const PROGRESS_KEY = "tutormind_progress_v1";
+
+const loadProgress = (): ProgressNote => {
+  try {
+    return JSON.parse(localStorage.getItem(PROGRESS_KEY) || "{}");
+  } catch {
+    return {};
+  }
+};
+
+const saveProgress = (p: ProgressNote) => {
+  try {
+    localStorage.setItem(PROGRESS_KEY, JSON.stringify(p));
+  } catch {}
+};
+
 export default function TutorPage() {
   const { user } = useAuth();
-  const [scriptLoaded, setScriptLoaded] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [scriptReady, setScriptReady] = useState(false);
 
-  // Get health status to check ConvAI configuration
-  const { data: health } = useQuery({
-    queryKey: ["/api/health"],
-    enabled: !!user,
-  }) as { data?: { convai?: boolean; useConvai?: boolean; agentId?: string } };
+  const memo = loadProgress();
+  const [level, setLevel] = useState<AgentLevel>((memo.lastLevel as AgentLevel) || "k2");
+  const [subject, setSubject] = useState(memo.lastSubject || "general");
+  const [studentName, setStudentName] = useState("");
+  const [gradeText, setGradeText] = useState("");
+  const [isStarted, setIsStarted] = useState(false);
 
-  // Load ElevenLabs ConvAI widget script
   useEffect(() => {
-    const script = document.createElement('script');
-    script.src = 'https://unpkg.com/@elevenlabs/convai-widget-embed';
-    script.async = true;
-    script.onload = () => setScriptLoaded(true);
-    script.onerror = () => console.error('Failed to load ElevenLabs ConvAI script');
-    document.head.appendChild(script);
-
-    return () => {
-      // Clean up script if component unmounts
-      const existingScript = document.querySelector('script[src="https://unpkg.com/@elevenlabs/convai-widget-embed"]');
-      if (existingScript) {
-        document.head.removeChild(existingScript);
-      }
-    };
+    if (document.querySelector('script[data-elevenlabs-convai]')) {
+      setScriptReady(true);
+      return;
+    }
+    const s = document.createElement("script");
+    s.src = "https://unpkg.com/@elevenlabs/convai-widget-embed";
+    s.async = true;
+    s.type = "text/javascript";
+    s.setAttribute("data-elevenlabs-convai", "1");
+    s.onload = () => setScriptReady(true);
+    s.onerror = () => console.error('Failed to load ElevenLabs ConvAI script');
+    document.body.appendChild(s);
   }, []);
 
-  // Get agent ID from server health endpoint for consistency
-  const agentId = health?.agentId;
+  const composeFirstUserMessage = () => {
+    const starter = SUBJECT_STARTERS[subject] || "";
+    const tail = memo.lastSummary ? ` Also, resume from last time: ${memo.lastSummary}` : "";
+    return `${starter}${tail}`.trim();
+  };
+
+  const mount = (agentId: string, firstUserMessage?: string) => {
+    if (!containerRef.current) return;
+    containerRef.current.innerHTML = "";
+    const el = document.createElement("elevenlabs-convai");
+    el.setAttribute("agent-id", agentId);
+    if (firstUserMessage) el.setAttribute("first-user-message", firstUserMessage);
+    if (studentName) el.setAttribute("metadata-student-name", studentName);
+    if (gradeText) el.setAttribute("metadata-student-grade", gradeText);
+    containerRef.current.appendChild(el);
+
+    saveProgress({
+      lastLevel: level,
+      lastSubject: subject,
+      lastSummary: memo.lastSummary,
+      updatedAt: new Date().toISOString(),
+    });
+    setIsStarted(true);
+  };
+
+  const startTutor = () => mount(AGENTS[level], composeFirstUserMessage());
 
   return (
     <div className="min-h-screen bg-background">
       <NavigationHeader />
       
       <div className="flex-1 p-6">
-        <div className="max-w-6xl mx-auto space-y-8">
+        <div className="max-w-4xl mx-auto space-y-6">
           
           {/* Header */}
           <div className="text-center">
             <h1 className="text-3xl font-bold text-foreground mb-2" data-testid="text-tutor-title">
-              AI Tutor Conversation
+              JIE Tutor — Multi-Agent
             </h1>
             <p className="text-muted-foreground text-lg">
-              Talk directly with your AI tutor using advanced voice technology
+              Age-appropriate AI tutoring with voice conversation
             </p>
           </div>
 
-          {/* Connection Status */}
-          <div className="flex justify-center space-x-4">
-            {health?.convai ? (
-              <Badge variant="default" className="flex items-center space-x-2" data-testid="badge-connection-ok">
-                <CheckCircle className="w-4 h-4" />
-                <span>Connection OK</span>
-              </Badge>
-            ) : (
-              <Badge variant="destructive" className="flex items-center space-x-2" data-testid="badge-connection-error">
-                <AlertCircle className="w-4 h-4" />
-                <span>Set ELEVENLABS_AGENT_ID in Secrets/Deploy</span>
-              </Badge>
-            )}
-            
-            <Button 
-              variant="outline" 
-              size="sm" 
-              onClick={() => window.open('/api/health', '_blank')}
-              data-testid="button-health-check"
-            >
-              <ExternalLink className="w-4 h-4 mr-2" />
-              Health Check
-            </Button>
-          </div>
+          {/* Configuration Panel */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Tutor Configuration</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="level">Level</Label>
+                  <Select value={level} onValueChange={(value: AgentLevel) => setLevel(value)} disabled={isStarted}>
+                    <SelectTrigger data-testid="select-level">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="k2">Kindergarten–2</SelectItem>
+                      <SelectItem value="g3_5">Grades 3–5</SelectItem>
+                      <SelectItem value="g6_8">Grades 6–8</SelectItem>
+                      <SelectItem value="g9_12">Grades 9–12</SelectItem>
+                      <SelectItem value="college">College/Adult</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="subject">Subject</Label>
+                  <Select value={subject} onValueChange={setSubject} disabled={isStarted}>
+                    <SelectTrigger data-testid="select-subject">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="general">General</SelectItem>
+                      <SelectItem value="math">Math</SelectItem>
+                      <SelectItem value="english">English</SelectItem>
+                      <SelectItem value="spanish">Spanish</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="studentName">Student Name</Label>
+                  <Input
+                    id="studentName"
+                    placeholder="Optional"
+                    value={studentName}
+                    onChange={(e) => setStudentName(e.target.value)}
+                    disabled={isStarted}
+                    data-testid="input-student-name"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="gradeText">Grade</Label>
+                  <Input
+                    id="gradeText"
+                    placeholder="e.g., 3rd grade"
+                    value={gradeText}
+                    onChange={(e) => setGradeText(e.target.value)}
+                    disabled={isStarted}
+                    data-testid="input-grade-text"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-center pt-4">
+                <Button 
+                  onClick={startTutor} 
+                  disabled={!scriptReady}
+                  size="lg"
+                  data-testid="button-start-tutor"
+                >
+                  {isStarted ? 'Switch Tutor' : 'Start Tutor'}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
 
           {/* ConvAI Widget */}
           <Card className="shadow-lg">
-            <CardHeader>
-              <CardTitle className="text-center">Voice Conversation</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {!agentId ? (
-                <div className="text-center py-16" data-testid="text-no-agent-id">
-                  <AlertCircle className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
-                  <h3 className="text-xl font-semibold text-foreground mb-2">
-                    ConvAI Not Configured
-                  </h3>
-                  <p className="text-muted-foreground mb-4">
-                    Please set ELEVENLABS_AGENT_ID in your environment variables to enable voice conversation.
-                  </p>
-                  <Badge variant="outline">Configuration Required</Badge>
-                </div>
-              ) : !scriptLoaded ? (
+            <CardContent className="p-0">
+              {!scriptReady ? (
                 <div className="text-center py-16" data-testid="text-loading">
                   <div className="animate-spin w-8 h-8 border-4 border-primary border-t-transparent rounded-full mx-auto mb-4" />
                   <p className="text-muted-foreground">Loading ConvAI widget...</p>
                 </div>
+              ) : !isStarted ? (
+                <div className="text-center py-16" data-testid="text-not-started">
+                  <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <span className="text-3xl">🎓</span>
+                  </div>
+                  <h3 className="text-xl font-semibold text-foreground mb-2">
+                    Ready to Start Learning
+                  </h3>
+                  <p className="text-muted-foreground mb-4">
+                    Configure your settings above and click "Start Tutor" to begin your personalized learning session.
+                  </p>
+                </div>
               ) : (
-                <div className="w-full" data-testid="convai-widget-container">
-                  <elevenlabs-convai 
-                    agent-id={agentId} 
-                    style="width:100%;height:640px"
-                  />
-                </div>
+                <div ref={containerRef} data-testid="convai-widget-container" />
               )}
-            </CardContent>
-          </Card>
-
-          {/* Instructions */}
-          <Card>
-            <CardContent className="pt-6">
-              <div className="grid md:grid-cols-3 gap-6">
-                <div className="text-center">
-                  <div className="w-12 h-12 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-3">
-                    <span className="text-2xl">🎤</span>
-                  </div>
-                  <h3 className="font-semibold mb-2">Start Talking</h3>
-                  <p className="text-sm text-muted-foreground">
-                    Click to start a voice conversation with your AI tutor
-                  </p>
-                </div>
-                
-                <div className="text-center">
-                  <div className="w-12 h-12 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-3">
-                    <span className="text-2xl">🧠</span>
-                  </div>
-                  <h3 className="font-semibold mb-2">Learn Interactively</h3>
-                  <p className="text-sm text-muted-foreground">
-                    Ask questions, get explanations, and receive personalized feedback
-                  </p>
-                </div>
-                
-                <div className="text-center">
-                  <div className="w-12 h-12 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-3">
-                    <span className="text-2xl">📈</span>
-                  </div>
-                  <h3 className="font-semibold mb-2">Track Progress</h3>
-                  <p className="text-sm text-muted-foreground">
-                    Your tutor adapts to your learning style and tracks your improvements
-                  </p>
-                </div>
-              </div>
             </CardContent>
           </Card>
 
