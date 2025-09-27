@@ -40,7 +40,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       hasOpenAI: !!process.env.OPENAI_API_KEY,
       hasAzureTTS: hasAzureTTS,
       useRealtime: process.env.USE_REALTIME === 'true' || process.env.USE_REALTIME === '1',
-      debugMode: process.env.DEBUG_TUTOR === '1'
+      debugMode: process.env.DEBUG_TUTOR === '1',
+      // ElevenLabs ConvAI status
+      convai: !!process.env.ELEVENLABS_AGENT_ID,
+      useConvai: process.env.USE_CONVAI !== 'false'
     });
   });
 

@@ -15,11 +15,13 @@ import SettingsPage from "@/pages/settings-page";
 import AdminPage from "@/pages/admin-page";
 import PricingPage from "@/pages/pricing-page";
 import SubscribePage from "@/pages/subscribe-page";
+import TutorPage from "@/pages/tutor-page";
 
 function Router() {
   return (
     <Switch>
       <ProtectedRoute path="/" component={HomePage} />
+      <ProtectedRoute path="/tutor" component={TutorPage} />
       <ProtectedRoute path="/lessons" component={LessonsPage} />
       <ProtectedRoute path="/lesson/:lessonId" component={LessonPage} />
       <ProtectedRoute path="/quiz/:lessonId" component={QuizPage} />

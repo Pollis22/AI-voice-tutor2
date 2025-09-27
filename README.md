@@ -1,4 +1,105 @@
-# AI Tutor - Conversational Learning Platform
+# AI Tutor - ElevenLabs ConvAI Integration
+
+## Phase 1: Fast Swap to ElevenLabs Conversational AI ✅
+
+**COMPLETED**: Replaced current voice chain with ElevenLabs ConvAI embed while keeping GPT-5 reasoning and maintaining all existing functionality.
+
+## Quick Setup
+
+### 1. Environment Variables
+
+Add these secrets in **Editor > Secrets** and **Deploy** settings:
+
+```bash
+# Required for ElevenLabs ConvAI
+ELEVENLABS_AGENT_ID=your_agent_id_here
+USE_CONVAI=true
+
+# Optional (for future phases)
+ELEVENLABS_API_KEY=your_api_key_here
+
+# Required by ElevenLabs Agent (if configured)
+OPENAI_API_KEY=your_openai_key_here
+```
+
+### 2. Create ElevenLabs ConvAI Agent
+
+1. Go to [ElevenLabs ConvAI](https://elevenlabs.io/conversational-ai)
+2. Create a new Agent
+3. Copy the **Agent ID** from the URL or settings
+4. Add this Agent ID to `ELEVENLABS_AGENT_ID` in your secrets
+
+### 3. Configure Agent System Prompt
+
+In your ElevenLabs Agent settings, paste this **exact** system prompt:
+
+```
+You are TutorMind, an inclusive, empathetic AI tutor.
+Rules:
+- Stay strictly on the current lesson's subject/topic/step; do not switch subjects unless the student asks.
+- Always acknowledge the student's answer as CORRECT or INCORRECT.
+- If INCORRECT: one-sentence explanation + tiny hint; then re-ask in new words.
+- Keep replies ≤2 sentences total and always end with a short question.
+- Never assume physical abilities; use neutral phrasing ('let's imagine', 'think about', 'let's count together').
+- Do not repeat the same question verbatim; vary wording if the student stalls.
+- Use only the provided lesson data (and, in Phase 2, retrieved_context from uploads); do not invent facts.
+```
+
+### 4. Test the Integration
+
+1. Visit `/tutor` in your app
+2. Check for "Connection OK" status
+3. Click the ConvAI widget to start talking
+4. Verify responses follow the system prompt (≤2 sentences, ends with question)
+
+### 5. Health Check
+
+Visit `/api/health` to verify configuration:
+```json
+{
+  "convai": true,
+  "useConvai": true,
+  "status": "ok"
+}
+```
+
+## Feature Flag
+
+The `USE_CONVAI=true` environment variable:
+- **Disables** old Azure TTS/ASR/VAD pipeline
+- **Prevents** double audio or initialization conflicts  
+- **Defaults to true** for Phase 1
+
+## Files Modified
+
+### Created:
+- `client/src/pages/tutor-page.tsx` - New /tutor page with ConvAI embed
+- `server/config/elevenLabsConfig.ts` - Centralized config module
+
+### Modified:
+- `client/src/App.tsx` - Added /tutor route
+- `server/routes.ts` - Extended /api/health endpoint  
+- `server/services/voice.ts` - Added USE_CONVAI feature flag
+
+## Troubleshooting
+
+**ConvAI widget not loading:**
+- Check browser console for script errors
+- Verify `ELEVENLABS_AGENT_ID` is set correctly
+- Ensure Agent ID is from a valid ElevenLabs ConvAI agent
+
+**Double audio issues:**
+- Confirm `USE_CONVAI=true` is set (disables old voice stack)
+- Check `/api/health` shows `useConvai: true`
+
+**No response from agent:**
+- Verify system prompt is configured in ElevenLabs
+- Check that OpenAI API key is available to ElevenLabs agent
+- Test agent directly in ElevenLabs dashboard first
+
+---
+
+# Original AI Tutor Documentation
 
 A production-ready MVP of a Conversational AI Tutor that enables students to learn Math, English, and Spanish through interactive voice conversations, personalized quizzes, and adaptive learning paths.
 

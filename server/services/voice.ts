@@ -7,6 +7,16 @@ class VoiceService {
   private openai: OpenAI | null = null;
 
   constructor() {
+    // Check if ElevenLabs ConvAI should be used instead
+    const useConvAI = process.env.USE_CONVAI !== 'false';
+    
+    if (useConvAI) {
+      this.testMode = true;
+      console.log('Voice service DISABLED - ElevenLabs ConvAI is enabled (USE_CONVAI=true)');
+      console.log('Skipping Azure TTS/ASR/VAD initialization to prevent conflicts');
+      return;
+    }
+    
     // Check for OpenAI API and Azure Speech credentials
     const hasOpenAI = !!process.env.OPENAI_API_KEY?.trim();
     const hasAzure = !!process.env.AZURE_SPEECH_KEY?.trim() && !!process.env.AZURE_SPEECH_REGION?.trim();
