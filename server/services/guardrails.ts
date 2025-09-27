@@ -1,34 +1,16 @@
+import { hardBlockIfBanned, sanitizeInclusive, enforceTwoSentenceQuestion, topicGuard, antiRepeat } from './phraseGuard';
+
 export class TutorGuardrails {
   private recentResponses: Map<string, string[]> = new Map();
   private readonly maxRecent = 3;
 
   sanitizeTutorQuestion(text: string): string {
-    // Inclusive rephrasings for common ableist/assumptive patterns
-    const replacements: Record<string,string> = {
-      'how many fingers do you have': 'how many fingers are typically on a hand',
-      'fingers on your hand': 'fingers on a hand',
-      'your hand': 'a hand',
-      'your fingers': 'fingers',
-      'can you see': 'what do you notice about',
-      'can you hear': 'what sounds might there be',
-      'stand up and': 'imagine you',
-      'walk to': 'think about going to',
-      'run around': 'imagine moving around',
-      'look at your': 'think about a',
-      'touch your': 'point to where your',
-      'clap your hands': 'count the claps: clap, clap',
-      'jump up': 'count up',
-      'raise your hand': 'what would you say',
-      'point to your': 'name the body part:',
-      'use your legs': 'think about legs',
-      'with your eyes': 'in this picture'
-    };
-
-    let s = text.trim();
-    Object.entries(replacements).forEach(([bad, good]) => {
-      s = s.replace(new RegExp(bad, 'gi'), good);
-    });
-
+    // P0 HOTFIX: Hard block any banned phrases first
+    let s = hardBlockIfBanned(text);
+    
+    // Apply inclusive sanitization
+    s = sanitizeInclusive(s);
+    
     // Generic physical-command softening (assumptions → imagination)
     const verbs = ['stand','walk','run','jump','see','hear','touch','hold','grab','reach','climb','skip','hop'];
     verbs.forEach(v => {
@@ -40,28 +22,13 @@ export class TutorGuardrails {
   }
 
   avoidRepeat(sessionId: string, candidate: string): string {
-    const recent = this.recentResponses.get(sessionId) ?? [];
-    const norm = (x:string)=>x.toLowerCase().replace(/\s+/g,' ').trim();
-    const dup = recent.some(r => norm(r) === norm(candidate) || this.similarity(r,candidate) > 0.85);
-    if (dup) return this.getStepHint(sessionId);
-    recent.push(candidate);
-    if (recent.length > this.maxRecent) recent.shift();
-    this.recentResponses.set(sessionId, recent);
-    return candidate;
+    // P0 HOTFIX: Use new optimized anti-repeat system
+    return antiRepeat(sessionId, candidate, this.recentResponses);
   }
 
   enforceFormat(text: string): string {
-    // ≤2 sentences & must end with '?'
-    const sentences = (text.match(/[^.!?]+[.!?]+/g) ?? [text]).slice(0,2);
-    let out = sentences.join(' ').trim();
-    if (!/\?$/.test(out)) {
-      const followUps = [
-        'What do you think?', 'Can you try it?', 'Does that make sense?',
-        'Ready to continue?', 'What\'s your answer?', 'How does that work?'
-      ];
-      out = out.replace(/[.!?]+$/, '').trim() + '. ' + followUps[Math.floor(Math.random()*followUps.length)];
-    }
-    return out;
+    // P0 HOTFIX: Use optimized two-sentence question enforcer
+    return enforceTwoSentenceQuestion(text);
   }
 
   preventUserFabrication(messages: Array<{role:string; content:string}>): Array<{role:string; content:string}> {
