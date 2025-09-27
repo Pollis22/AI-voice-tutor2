@@ -9,8 +9,53 @@ import { userQueueManager } from '../services/userQueueManager';
 import { inputGatingService } from '../services/inputGating';
 import { guardrails } from '../services/guardrails';
 import { hardBlockIfBanned } from '../services/phraseGuard';
+import { answerChecker } from '../services/answerChecker';
 
 const router = express.Router();
+
+// Helper function to extract expected answer from a math question
+const extractExpectedAnswer = (question: string): string | null => {
+  // Extract answer from simple math questions
+  const patterns = [
+    /what(?:'s|\s+is)\s+(\d+)\s*([+\-*\/])\s*(\d+)/i,  // "What's 1 + 1?"
+    /if you have (\d+) .+ and get (\d+) more/i,  // "If you have 2 apples and get 1 more"
+    /what comes after (\d+)/i,  // "What comes after 2?"
+    /(\d+)\s*plus\s*(\d+)/i,  // "2 plus 2"
+    /(\d+)\s*minus\s*(\d+)/i  // "5 minus 2"
+  ];
+  
+  for (const pattern of patterns) {
+    const match = question.match(pattern);
+    if (match) {
+      if (pattern === patterns[0] || pattern === patterns[3]) {
+        // Math operation: "What's X + Y" or "X plus Y"
+        const a = parseInt(match[1]);
+        const op = match[2] || 'plus';
+        const b = parseInt(match[3]);
+        if (op === '+' || op === 'plus') return String(a + b);
+        if (op === '-' || op === 'minus') return String(a - b);
+        if (op === '*') return String(a * b);
+        if (op === '/') return String(a / b);
+      } else if (pattern === patterns[1]) {
+        // Story problem: "If you have X and get Y more"
+        const a = parseInt(match[1]);
+        const b = parseInt(match[2]);
+        return String(a + b);
+      } else if (pattern === patterns[2]) {
+        // Sequence: "What comes after X?"
+        const num = parseInt(match[1]);
+        return String(num + 1);
+      } else if (pattern === patterns[4]) {
+        // Subtraction: "X minus Y"
+        const a = parseInt(match[1]);
+        const b = parseInt(match[2]);
+        return String(a - b);
+      }
+    }
+  }
+  
+  return null;
+};
 
 // Generate voice response with lesson grounding and turn gating
 router.post('/generate-response', async (req, res) => {
@@ -214,18 +259,36 @@ router.post('/generate-response', async (req, res) => {
   } catch (error) {
     console.error('[Voice API] Error generating response:', error);
     
-    // Extract lessonId and sessionId from request body for fallback
-    const { lessonId, sessionId } = req.body;
+    // Extract lessonId, sessionId and message from request body for fallback
+    const { lessonId, sessionId, message } = req.body;
     
     // Return a lesson-specific fallback response instead of generic error
     const subject = lessonId ? lessonId.split('-')[0] : 'general';
     
+    // CRITICAL: Check if user provided an answer to a previous question
+    let answerFeedback = '';
+    // Get last question from session state
+    const lastQuestionKey = `last_question_${sessionId || 'default'}`;
+    const lastQuestion = (req.session as any)[lastQuestionKey] as string | undefined;
+    
+    if (lastQuestion && message && message.length > 0 && subject === 'math') {
+      // For math, check if this is an answer to a math problem
+      const expectedAnswer = extractExpectedAnswer(lastQuestion);
+      if (expectedAnswer) {
+        const checkResult = answerChecker.checkAnswer(expectedAnswer, message, 'math');
+        console.log(`[Voice API Fallback] Answer check - Expected: ${expectedAnswer}, Got: ${message}, Result: ${checkResult.ok}`);
+        answerFeedback = checkResult.msg + ' ';
+      }
+    }
+    
     const fallbackResponses: Record<string, string[]> = {
       math: [
-        "Let's work through this step by step. What number comes after 2?",
-        "Great effort! If you have 2 apples and get 1 more, how many total?",
-        "That's a good question about numbers! What comes after 3 when counting?",
-        "Let's practice addition. What's 1 plus 1?"
+        "Let's work through this step by step. What's 2 plus 2?",
+        "Let's try another one. If you have 3 apples and get 2 more, how many total?",
+        "Here's a new problem. What's 4 plus 1?",
+        "Let's practice addition. What's 1 plus 1?",
+        "Can you solve this? What's 3 plus 3?",
+        "Try this one. What's 5 minus 2?"
       ],
       english: [
         "Let's explore words together! Can you tell me a word that names something?",
@@ -268,11 +331,20 @@ router.post('/generate-response', async (req, res) => {
       selectedResponse = responses[Math.floor(Math.random() * responses.length)];
     }
     
+    // CRITICAL: Add answer feedback before the new question
+    selectedResponse = answerFeedback + selectedResponse;
+    
     // CRITICAL: Apply phrase guards to prevent ableist content
     selectedResponse = hardBlockIfBanned(selectedResponse);
     selectedResponse = guardrails.sanitizeTutorQuestion(selectedResponse);
     selectedResponse = guardrails.avoidRepeat(sessionId || 'default', selectedResponse, subject);
     selectedResponse = guardrails.enforceFormat(selectedResponse);
+    
+    // Store the new question for next answer checking
+    if (selectedResponse.includes('?')) {
+      const lastQuestionKey = `last_question_${sessionId || 'default'}`;
+      (req.session as any)[lastQuestionKey] = selectedResponse;
+    }
     
     // Track this response (keep only last 3 responses for better variety)
     const updatedHistory = [...recentResponses.slice(-2), selectedResponse];
