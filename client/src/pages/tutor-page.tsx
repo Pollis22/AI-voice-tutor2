@@ -64,26 +64,107 @@ export default function TutorPage() {
   const [gradeText, setGradeText] = useState("");
   const [isStarted, setIsStarted] = useState(false);
   const [lastSummary, setLastSummary] = useState(memo.lastSummary || "");
+  const [permissionState, setPermissionState] = useState<'unknown' | 'granted' | 'denied' | 'prompt'>('unknown');
+  const [networkError, setNetworkError] = useState<string | null>(null);
+  const [loadStartTime, setLoadStartTime] = useState<number | null>(null);
 
+  // Check microphone permissions on mount
+  useEffect(() => {
+    const checkPermissions = async () => {
+      try {
+        const result = await navigator.permissions.query({ name: 'microphone' as PermissionName });
+        setPermissionState(result.state);
+        result.addEventListener('change', () => {
+          setPermissionState(result.state);
+        });
+      } catch (error) {
+        console.warn('Permissions API not supported:', error);
+      }
+    };
+    checkPermissions();
+  }, []);
+
+  // Load ElevenLabs script with performance tracking
   useEffect(() => {
     if (document.querySelector('script[data-elevenlabs-convai]')) {
       setScriptReady(true);
       return;
     }
+    
+    setLoadStartTime(Date.now());
     const s = document.createElement("script");
     s.src = "https://unpkg.com/@elevenlabs/convai-widget-embed";
     s.async = true;
     s.type = "text/javascript";
     s.setAttribute("data-elevenlabs-convai", "1");
-    s.onload = () => setScriptReady(true);
-    s.onerror = () => console.error('Failed to load ElevenLabs ConvAI script');
+    
+    s.onload = () => {
+      const loadTime = Date.now() - (loadStartTime || 0);
+      console.log(`ConvAI widget loaded in ${loadTime}ms`);
+      
+      // Analytics hook for performance tracking
+      if (typeof window !== 'undefined' && (window as any).gtag) {
+        (window as any).gtag('event', 'convai_script_loaded', {
+          custom_parameter_1: loadTime,
+          event_category: 'performance'
+        });
+      }
+      
+      setScriptReady(true);
+      setNetworkError(null);
+    };
+    
+    s.onerror = (error) => {
+      console.error('Failed to load ElevenLabs ConvAI script:', error);
+      setNetworkError('Failed to load ConvAI widget. Please check your internet connection and try again.');
+      
+      // Analytics hook for error tracking
+      if (typeof window !== 'undefined' && (window as any).gtag) {
+        (window as any).gtag('event', 'convai_script_error', {
+          event_category: 'error',
+          event_label: 'script_load_failed'
+        });
+      }
+    };
+    
     document.body.appendChild(s);
-  }, []);
+  }, [loadStartTime]);
 
   const composeFirstUserMessage = () => {
     const starter = SUBJECT_STARTERS[subject] || "";
     const tail = lastSummary ? ` Also, resume from last time: ${lastSummary}` : "";
     return `${starter}${tail}`.trim();
+  };
+
+  const requestMicrophonePermission = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      setPermissionState('granted');
+      
+      // Analytics hook for permission granted
+      if (typeof window !== 'undefined' && (window as any).gtag) {
+        (window as any).gtag('event', 'microphone_permission_granted', {
+          event_category: 'permissions'
+        });
+      }
+      
+      // Stop the stream immediately as we just needed permission
+      stream.getTracks().forEach(track => track.stop());
+      return true;
+    } catch (error: any) {
+      console.error('Microphone permission error:', error);
+      setPermissionState('denied');
+      
+      // Analytics hook for permission denied
+      if (typeof window !== 'undefined' && (window as any).gtag) {
+        (window as any).gtag('event', 'microphone_permission_denied', {
+          event_category: 'permissions',
+          event_label: error.name
+        });
+      }
+      
+      return false;
+    }
   };
 
   const mount = (agentId: string, firstUserMessage?: string) => {
@@ -122,7 +203,22 @@ export default function TutorPage() {
     setIsStarted(true);
   };
 
-  const startTutor = () => {
+  const startTutor = async () => {
+    // Request microphone permission before starting
+    const hasPermission = await requestMicrophonePermission();
+    if (!hasPermission) {
+      return; // Don't start if permission denied
+    }
+    
+    // Analytics hook for session start
+    if (typeof window !== 'undefined' && (window as any).gtag) {
+      (window as any).gtag('event', 'tutor_session_started', {
+        event_category: 'engagement',
+        custom_parameter_1: level,
+        custom_parameter_2: subject
+      });
+    }
+    
     setIsStarted(true);
   };
   
@@ -158,8 +254,8 @@ export default function TutorPage() {
     <div className="min-h-screen bg-background">
       <NavigationHeader />
       
-      <div className="flex-1 p-6">
-        <div className="max-w-4xl mx-auto space-y-6">
+      <div className="flex-1 p-4 sm:p-6">
+        <div className="max-w-4xl mx-auto space-y-4 sm:space-y-6">
           
           {/* Header */}
           <div className="text-center">
@@ -177,7 +273,7 @@ export default function TutorPage() {
               <CardTitle>Tutor Configuration</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="level">Level</Label>
                   <Select value={level} onValueChange={(value: AgentLevel) => setLevel(value)}>
@@ -232,15 +328,15 @@ export default function TutorPage() {
                 </div>
               </div>
 
-              <div className="flex justify-center gap-4 pt-4">
+              <div className="flex flex-col sm:flex-row justify-center gap-4 pt-4">
                 {!isStarted ? (
                   <Button 
                     onClick={startTutor} 
-                    disabled={!scriptReady}
+                    disabled={!scriptReady || permissionState === 'denied'}
                     size="lg"
                     data-testid="button-start-tutor"
                   >
-                    Start Tutor
+                    {permissionState === 'granted' ? 'Start Tutor' : 'Start Tutor (Mic Required)'}
                   </Button>
                 ) : (
                   <>
@@ -286,10 +382,58 @@ export default function TutorPage() {
           {/* ConvAI Widget */}
           <Card className="shadow-lg">
             <CardContent className="p-0">
-              {!scriptReady ? (
+              {networkError ? (
+                <div className="text-center py-16" data-testid="text-network-error">
+                  <div className="w-16 h-16 bg-destructive/10 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <span className="text-3xl">⚠️</span>
+                  </div>
+                  <h3 className="text-xl font-semibold text-foreground mb-2">
+                    Connection Error
+                  </h3>
+                  <p className="text-muted-foreground mb-4">
+                    {networkError}
+                  </p>
+                  <Button 
+                    onClick={() => window.location.reload()} 
+                    variant="outline"
+                    data-testid="button-retry"
+                  >
+                    Retry Connection
+                  </Button>
+                </div>
+              ) : !scriptReady ? (
                 <div className="text-center py-16" data-testid="text-loading">
                   <div className="animate-spin w-8 h-8 border-4 border-primary border-t-transparent rounded-full mx-auto mb-4" />
                   <p className="text-muted-foreground">Loading ConvAI widget...</p>
+                  {loadStartTime && Date.now() - loadStartTime > 5000 && (
+                    <p className="text-sm text-amber-600 mt-2">
+                      This is taking longer than expected. Check your connection.
+                    </p>
+                  )}
+                </div>
+              ) : permissionState === 'denied' ? (
+                <div className="text-center py-16" data-testid="text-permission-denied">
+                  <div className="w-16 h-16 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <span className="text-3xl">🎤</span>
+                  </div>
+                  <h3 className="text-xl font-semibold text-foreground mb-2">
+                    Microphone Access Required
+                  </h3>
+                  <p className="text-muted-foreground mb-4">
+                    Voice tutoring requires microphone access. Please allow microphone permissions and refresh the page.
+                  </p>
+                  <div className="space-y-2">
+                    <Button 
+                      onClick={requestMicrophonePermission} 
+                      data-testid="button-request-mic"
+                    >
+                      Request Permission
+                    </Button>
+                    <p className="text-xs text-muted-foreground">
+                      iOS: Settings → Safari → Microphone<br/>
+                      Android: Site settings → Permissions → Microphone
+                    </p>
+                  </div>
                 </div>
               ) : (
                 <>

@@ -9,6 +9,7 @@ import voiceRoutes from "./routes/voiceRoutes";
 import conversationRoutes from "./routes/conversationRoutes";
 import streamingRoutes from "./routes/streamingRoutes";
 import { debugRoutes } from "./routes/debugRoutes";
+import { setupSecurityHeaders, setupCORS } from "./middleware/security";
 import Stripe from "stripe";
 import { z } from "zod";
 
@@ -26,6 +27,10 @@ const stripe = isStripeEnabled ? new Stripe(stripeKey, {
 }) : null;
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  // Apply security middleware
+  app.use(setupCORS);
+  app.use(setupSecurityHeaders);
+  
   // Health check endpoint
   app.get("/api/health", (req, res) => {
     const testMode = process.env.VOICE_TEST_MODE !== '0';
