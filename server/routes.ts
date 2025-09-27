@@ -42,9 +42,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       useRealtime: process.env.USE_REALTIME === 'true' || process.env.USE_REALTIME === '1',
       debugMode: process.env.DEBUG_TUTOR === '1',
       // ElevenLabs ConvAI status
-      convai: !!process.env.ELEVENLABS_AGENT_ID,
+      convai: true, // Multi-agent system - agents are hardcoded in frontend
       useConvai: process.env.USE_CONVAI !== 'false',
-      agentId: process.env.ELEVENLABS_AGENT_ID
+      multiAgent: true // Indicates this is the new multi-agent system
     });
   });
 
