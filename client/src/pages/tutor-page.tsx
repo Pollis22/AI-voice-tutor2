@@ -67,6 +67,8 @@ export default function TutorPage() {
   const [permissionState, setPermissionState] = useState<'unknown' | 'granted' | 'denied' | 'prompt'>('unknown');
   const [networkError, setNetworkError] = useState<string | null>(null);
   const [loadStartTime, setLoadStartTime] = useState<number | null>(null);
+  const [widgetStatus, setWidgetStatus] = useState<'loading' | 'ready' | 'error' | 'reconnecting'>('loading');
+  const [sessionStartTime, setSessionStartTime] = useState<number | null>(null);
 
   // Check microphone permissions on mount
   useEffect(() => {
@@ -112,6 +114,18 @@ export default function TutorPage() {
       
       setScriptReady(true);
       setNetworkError(null);
+      setWidgetStatus('ready');
+      
+      // Add global error handler for unhandled promises
+      window.addEventListener('unhandledrejection', (event) => {
+        console.error('Unhandled promise rejection:', event.reason);
+        if (typeof window !== 'undefined' && (window as any).gtag) {
+          (window as any).gtag('event', 'unhandled_error', {
+            event_category: 'error',
+            event_label: event.reason?.toString() || 'unknown'
+          });
+        }
+      });
     };
     
     s.onerror = (error) => {
@@ -188,6 +202,60 @@ export default function TutorPage() {
         lastSummary: summary,
         updatedAt: new Date().toISOString(),
       });
+      
+      // Analytics hook for conversation end
+      const sessionDuration = sessionStartTime ? Date.now() - sessionStartTime : 0;
+      if (typeof window !== 'undefined' && (window as any).gtag) {
+        (window as any).gtag('event', 'conversation_end', {
+          event_category: 'engagement',
+          custom_parameter_1: level,
+          custom_parameter_2: subject,
+          custom_parameter_3: Math.round(sessionDuration / 1000) // duration in seconds
+        });
+      }
+    });
+    
+    // Add error and connection event listeners
+    el.addEventListener("error", (e: any) => {
+      console.error("ConvAI widget error:", e.detail);
+      setWidgetStatus('error');
+      if (typeof window !== 'undefined' && (window as any).gtag) {
+        (window as any).gtag('event', 'widget_error', {
+          event_category: 'error',
+          event_label: e.detail?.type || 'unknown'
+        });
+      }
+    });
+    
+    el.addEventListener("connection-lost", (e: any) => {
+      console.warn("ConvAI connection lost, attempting reconnect...");
+      setWidgetStatus('reconnecting');
+      if (typeof window !== 'undefined' && (window as any).gtag) {
+        (window as any).gtag('event', 'connection_lost', {
+          event_category: 'connectivity'
+        });
+      }
+    });
+    
+    el.addEventListener("reconnected", (e: any) => {
+      console.log("ConvAI reconnected successfully");
+      setWidgetStatus('ready');
+      if (typeof window !== 'undefined' && (window as any).gtag) {
+        (window as any).gtag('event', 'reconnected', {
+          event_category: 'connectivity'
+        });
+      }
+    });
+    
+    el.addEventListener("widget-ready", (e: any) => {
+      const widgetReadyTime = Date.now() - (sessionStartTime || 0);
+      console.log(`ConvAI widget ready in ${widgetReadyTime}ms`);
+      if (typeof window !== 'undefined' && (window as any).gtag) {
+        (window as any).gtag('event', 'widget_ready', {
+          event_category: 'performance',
+          custom_parameter_1: widgetReadyTime
+        });
+      }
     });
     
     containerRef.current.appendChild(el);
@@ -220,12 +288,23 @@ export default function TutorPage() {
     }
     
     setIsStarted(true);
+    setSessionStartTime(Date.now());
   };
   
   const switchTutor = () => {
     if (containerRef.current) {
       containerRef.current.innerHTML = "";
     }
+    
+    // Analytics hook for switch tutor
+    if (typeof window !== 'undefined' && (window as any).gtag) {
+      (window as any).gtag('event', 'switch_tutor', {
+        event_category: 'engagement',
+        custom_parameter_1: level,
+        custom_parameter_2: subject
+      });
+    }
+    
     // Remount with new configuration
     setTimeout(() => mount(AGENTS[level], composeFirstUserMessage()), 100);
   };
@@ -350,6 +429,17 @@ export default function TutorPage() {
                     </Button>
                     <Button 
                       onClick={() => {
+                        // Analytics hook for stop session
+                        const sessionDuration = sessionStartTime ? Date.now() - sessionStartTime : 0;
+                        if (typeof window !== 'undefined' && (window as any).gtag) {
+                          (window as any).gtag('event', 'stop_session', {
+                            event_category: 'engagement',
+                            custom_parameter_1: level,
+                            custom_parameter_2: subject,
+                            custom_parameter_3: Math.round(sessionDuration / 1000) // duration in seconds
+                          });
+                        }
+                        
                         setIsStarted(false);
                         if (containerRef.current) {
                           containerRef.current.innerHTML = "";

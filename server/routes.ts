@@ -43,13 +43,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       voiceTestMode: testMode,
       ttsEnabled: testMode || hasAzureTTS, // Always true in test mode or with Azure TTS
       hasOpenAI: !!process.env.OPENAI_API_KEY,
+      multiAgent: true, // Flag indicating multi-agent ConvAI system is active
       hasAzureTTS: hasAzureTTS,
       useRealtime: process.env.USE_REALTIME === 'true' || process.env.USE_REALTIME === '1',
       debugMode: process.env.DEBUG_TUTOR === '1',
       // ElevenLabs ConvAI status
       convai: true, // Multi-agent system - agents are hardcoded in frontend
-      useConvai: process.env.USE_CONVAI !== 'false',
-      multiAgent: true // Indicates this is the new multi-agent system
+      useConvai: process.env.USE_CONVAI !== 'false'
     });
   });
 

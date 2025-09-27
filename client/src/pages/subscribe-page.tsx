@@ -14,7 +14,26 @@ import { useToast } from "@/hooks/use-toast";
 // recreating the `Stripe` object on every render.
 // Use a test key if no key is provided (for development/testing)
 const stripeKey = import.meta.env.VITE_STRIPE_PUBLIC_KEY || 'pk_test_51O6lUpBx1IpIbNuqEVRhAeGKqnBTJjS3MK3l0PcQRmFooIBCVmVEH01123Sm9xz123Jc5fHfUv7123yNTkZD123400Qhj4JQh3';
-const stripePromise = loadStripe(stripeKey);
+
+// Lazy load Stripe with error handling to prevent unhandled rejections
+let stripePromise: Promise<any> | null = null;
+
+const getStripe = () => {
+  if (!stripePromise) {
+    stripePromise = loadStripe(stripeKey).catch((error) => {
+      console.warn('Stripe.js failed to load:', error);
+      // Analytics hook for Stripe load failure
+      if (typeof window !== 'undefined' && (window as any).gtag) {
+        (window as any).gtag('event', 'stripe_load_error', {
+          event_category: 'error',
+          event_label: error.message || 'unknown'
+        });
+      }
+      return null; // Return null on failure to prevent crashes
+    });
+  }
+  return stripePromise;
+};
 
 const SubscribeForm = ({ plan }: { plan: string }) => {
   const stripe = useStripe();
@@ -220,7 +239,7 @@ export default function SubscribePage() {
                 <CardTitle>Payment Details</CardTitle>
               </CardHeader>
               <CardContent>
-                <Elements stripe={stripePromise} options={{ clientSecret }}>
+                <Elements stripe={getStripe()} options={{ clientSecret }}>
                   <SubscribeForm plan={plan} />
                 </Elements>
                 

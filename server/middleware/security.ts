@@ -7,8 +7,9 @@ export function setupSecurityHeaders(req: Request, res: Response, next: NextFunc
     'default-src': ["'self'"],
     'script-src': [
       "'self'",
-      "'unsafe-inline'", // Required for Vite in development
+      ...(process.env.NODE_ENV === 'production' ? [] : ["'unsafe-inline'"]), // Only in development
       "https://unpkg.com", // ElevenLabs ConvAI widget
+      "https://js.stripe.com", // Stripe.js
       "https://www.googletagmanager.com", // Google Analytics
       "https://www.google-analytics.com"
     ],
@@ -16,6 +17,8 @@ export function setupSecurityHeaders(req: Request, res: Response, next: NextFunc
       "'self'",
       "https://api.elevenlabs.io", // ElevenLabs API
       "wss://api.elevenlabs.io", // ElevenLabs WebSocket
+      "https://api.stripe.com", // Stripe API
+      "https://m.stripe.network", // Stripe network
       "https://www.google-analytics.com", // Analytics
       "https://region1.google-analytics.com"
     ],
@@ -60,6 +63,12 @@ export function setupSecurityHeaders(req: Request, res: Response, next: NextFunc
   res.setHeader('X-Frame-Options', 'SAMEORIGIN');
   res.setHeader('X-XSS-Protection', '1; mode=block');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  
+  // Production security headers
+  if (process.env.NODE_ENV === 'production') {
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+    res.setHeader('Content-Security-Policy', csp + '; upgrade-insecure-requests');
+  }
 
   // Permissions Policy for microphone access
   res.setHeader('Permissions-Policy', [
@@ -81,12 +90,17 @@ export function setupCORS(req: Request, res: Response, next: NextFunction) {
   ].filter(Boolean);
 
   const origin = req.headers.origin;
-  if (!origin || allowedOrigins.includes(origin)) {
-    res.setHeader('Access-Control-Allow-Origin', origin || '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  if (origin && allowedOrigins.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Access-Control-Allow-Credentials', 'true');
+  } else if (!origin) {
+    // Same-origin requests (no origin header)
+    res.setHeader('Access-Control-Allow-Origin', '*');
   }
+  // Don't set CORS headers for disallowed origins
+  
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
   if (req.method === 'OPTIONS') {
     res.status(204).end();
