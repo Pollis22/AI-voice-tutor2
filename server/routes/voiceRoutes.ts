@@ -12,6 +12,7 @@ import { hardBlockIfBanned } from '../services/phraseGuard';
 import { answerChecker } from '../services/answerChecker';
 import { latencyTracker } from '../services/latencyTracker';
 import { latencyConfig, microAckPool, fallbackPools, getRandomFromPool } from '../config/latencyConfig';
+import { answerFeedbackService } from '../services/answerFeedback';
 
 const router = express.Router();
 
@@ -122,9 +123,16 @@ router.post('/generate-response', async (req, res) => {
     const effectiveEnergyLevel = energyLevel || (req.session as any).energyLevel || process.env.ENERGY_LEVEL || 'upbeat';
 
     console.log(`[Voice API] Processing valid input for user: ${userId}, session: ${effectiveSessionId}, lesson: ${lessonId}, message length: ${normalizedInput.length}`);
+    
+    // Send micro-acknowledgement immediately for better UX
+    const microAck = answerFeedbackService.generateMicroAck();
+    console.log(`[Voice API] Sending micro-ack: "${microAck}" for session: ${effectiveSessionId}`);
 
     // Get user queue for this session (ensures concurrency = 1 per user)
     const userQueue = userQueueManager.getQueue(effectiveSessionId);
+    
+    // Record LLM start time
+    latencyTracker.updateMetric(effectiveSessionId, turnId, { llm_start: Date.now() });
     
     // Enqueue the voice response generation to ensure exactly ONE LLM call per user turn
     const result = await userQueue.enqueue(async () => {
@@ -139,6 +147,12 @@ router.post('/generate-response', async (req, res) => {
         confidence: speechConfidence
       });
 
+      // Record LLM completion time
+      latencyTracker.updateMetric(effectiveSessionId, turnId, { 
+        llm_first_token: Date.now(),
+        model_used: process.env.LLM_MODEL || 'gpt-4o-mini'
+      });
+      
       return enhancedResponse;
     }, true); // Enable barge-in capability
 
@@ -288,6 +302,14 @@ router.post('/generate-response', async (req, res) => {
     
     // Extract lessonId, sessionId and message from request body for fallback
     const { lessonId, sessionId, message } = req.body;
+    const effectiveSessionId = sessionId || `${req.user?.id || 'anonymous'}-default`;
+    const turnId = latencyTracker.startTurn(effectiveSessionId);
+    
+    // Record fallback usage
+    latencyTracker.updateMetric(effectiveSessionId, turnId, { 
+      fallback_used: true,
+      error_code: error instanceof Error ? error.message.substring(0, 50) : 'unknown'
+    });
     
     // Return a lesson-specific fallback response instead of generic error
     const subject = lessonId ? lessonId.split('-')[0] : 'general';
@@ -308,55 +330,12 @@ router.post('/generate-response', async (req, res) => {
       }
     }
     
-    const fallbackResponses: Record<string, string[]> = {
-      math: [
-        "Let's work through this step by step. What's 2 plus 2?",
-        "Let's try another one. If you have 3 apples and get 2 more, how many total?",
-        "Here's a new problem. What's 4 plus 1?",
-        "Let's practice addition. What's 1 plus 1?",
-        "Can you solve this? What's 3 plus 3?",
-        "Try this one. What's 5 minus 2?"
-      ],
-      english: [
-        "Let's explore words together! Can you tell me a word that names something?",
-        "Good effort! What's your favorite word that describes an action?",
-        "Let's think about sentences. Can you make a simple sentence with the word 'cat'?",
-        "Great question! Can you think of a word that rhymes with 'bat'?"
-      ],
-      spanish: [
-        "¡Muy bien! Can you say 'hola' for me?",
-        "Good try! Do you know how to say 'thank you' in Spanish?",
-        "Let's practice greetings! How would you say 'good morning'?",
-        "Excellent! Can you count from uno to tres in Spanish?"
-      ],
-      general: [
-        "Let's explore this topic together! What would you like to learn first?",
-        "That's interesting! Can you tell me what you already know about this?",
-        "Good question! Let's start with the basics. What part interests you most?",
-        "I'm here to help you learn! What specific area should we focus on?"
-      ]
-    };
+    // Use centralized fallback pools from config
+    const fallbackSubject = (subject === 'math' || subject === 'english' || subject === 'spanish') 
+      ? subject : 'math'; // Default to math if unknown subject
     
-    const responses = fallbackResponses[subject] || fallbackResponses.general;
-    // Use improved session-based anti-repetition system
-    const sessionKey = `recent_responses_${sessionId || 'default'}`;
-    const recentResponses = (req.session as any)[sessionKey] || [];
-    
-    // Find responses not recently used
-    const availableResponses = responses.filter(response => 
-      !recentResponses.includes(response)
-    );
-    
-    let selectedResponse = '';
-    if (availableResponses.length > 0) {
-      // Pick randomly from available responses
-      selectedResponse = availableResponses[Math.floor(Math.random() * availableResponses.length)];
-    } else {
-      // If all responses were recently used, clear history and pick randomly
-      console.log(`[Voice API] All fallback responses used, clearing history for session: ${sessionId}`);
-      (req.session as any)[sessionKey] = [];
-      selectedResponse = responses[Math.floor(Math.random() * responses.length)];
-    }
+    // Get fallback question using the centralized feedback service
+    let selectedResponse = answerFeedbackService.getFallbackQuestion(fallbackSubject);
     
     // CRITICAL: Add answer feedback before the new question
     selectedResponse = answerFeedback + selectedResponse;
@@ -374,6 +353,8 @@ router.post('/generate-response', async (req, res) => {
     }
     
     // Track this response (keep only last 3 responses for better variety)
+    const sessionKey = `recent_responses_${sessionId || 'default'}`;
+    const recentResponses = (req.session as any)[sessionKey] || [];
     const updatedHistory = [...recentResponses.slice(-2), selectedResponse];
     (req.session as any)[sessionKey] = updatedHistory;
     
