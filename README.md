@@ -22,6 +22,8 @@ ELEVENLABS_API_KEY=your_api_key_here
 OPENAI_API_KEY=your_openai_key_here
 ```
 
+**Note**: The agent ID is read from the server environment for security. The frontend gets it via the `/api/health` endpoint.
+
 ### 2. Create ElevenLabs ConvAI Agent
 
 1. Go to [ElevenLabs ConvAI](https://elevenlabs.io/conversational-ai)

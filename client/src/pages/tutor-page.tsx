@@ -26,7 +26,7 @@ export default function TutorPage() {
   const { data: health } = useQuery({
     queryKey: ["/api/health"],
     enabled: !!user,
-  }) as { data?: { convai?: boolean; useConvai?: boolean } };
+  }) as { data?: { convai?: boolean; useConvai?: boolean; agentId?: string } };
 
   // Load ElevenLabs ConvAI widget script
   useEffect(() => {
@@ -46,8 +46,8 @@ export default function TutorPage() {
     };
   }, []);
 
-  // Get agent ID from environment
-  const agentId = import.meta.env.VITE_ELEVENLABS_AGENT_ID;
+  // Get agent ID from server health endpoint for consistency
+  const agentId = health?.agentId;
 
   return (
     <div className="min-h-screen bg-background">
