@@ -10,6 +10,8 @@ import { inputGatingService } from '../services/inputGating';
 import { guardrails } from '../services/guardrails';
 import { hardBlockIfBanned } from '../services/phraseGuard';
 import { answerChecker } from '../services/answerChecker';
+import { latencyTracker } from '../services/latencyTracker';
+import { latencyConfig, microAckPool, fallbackPools, getRandomFromPool } from '../config/latencyConfig';
 
 const router = express.Router();
 
@@ -84,10 +86,17 @@ router.post('/generate-response', async (req, res) => {
     const userId = req.user?.id || 'anonymous';
     const effectiveSessionId = sessionId || `${userId}-default`;
     
+    // Start timing for this turn
+    const turnId = latencyTracker.startTurn(effectiveSessionId);
+    const requestStartTime = Date.now();
+    
     // Cancel any in-flight operations for this session (barge-in)
     userQueueManager.cancelInFlightForSession(effectiveSessionId);
     
-    // TURN GATING: Use proper input gating service that implements OR logic (text OR sufficient ASR)
+    // Record ASR completion time
+    latencyTracker.updateMetric(effectiveSessionId, turnId, { asr_end: Date.now() });
+    
+    // TURN GATING: Use proper input gating service with new aggressive thresholds
     const gatingResult = inputGatingService.validate({
       message: message || '',
       speechDuration: speechDuration,
@@ -489,6 +498,41 @@ router.get('/test-tts', async (req, res) => {
       message: error instanceof Error ? error.message : 'Unknown error'
     });
   }
+});
+
+// Debug endpoint for latency metrics (auth-gated)
+router.get('/debug/latency', (req, res) => {
+  const sessionId = req.query.sessionId as string || `${req.user?.id || 'anonymous'}-default`;
+  const stats = latencyTracker.getStats(sessionId);
+  
+  if (!stats) {
+    return res.status(404).json({ error: 'No metrics found for session' });
+  }
+  
+  // Add current configuration info
+  const config = {
+    asr: {
+      minDurationMs: latencyConfig.asr.minDurationMs,
+      minConfidence: latencyConfig.asr.minConfidence
+    },
+    vad: {
+      silenceMs: latencyConfig.vad.silenceMs,
+      maxUtteranceMs: latencyConfig.vad.maxUtteranceMs
+    },
+    llm: {
+      model: latencyConfig.llm.model,
+      timeoutMs: latencyConfig.llm.timeoutMs,
+      targetFirstTokenMs: latencyConfig.llm.targetFirstTokenMs
+    },
+    inputGating: inputGatingService.getCurrentProfile()
+  };
+  
+  res.json({
+    sessionId,
+    stats,
+    config,
+    timestamp: Date.now()
+  });
 });
 
 export default router;

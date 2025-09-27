@@ -36,13 +36,13 @@ export class InputGatingService {
     aggressive: { minDurationMs: 150, minConfidence: 0.3 }
   };
 
-  // Environment-based configuration with profile support
-  private readonly vadSilenceMs = parseInt(process.env.VAD_SILENCE_MS || '300');
-  private readonly maxUtteranceMs = parseInt(process.env.MAX_UTTERANCE_MS || '8000');
-  private readonly asrProfile = (process.env.ASR_PROFILE as 'strict'|'balanced'|'aggressive') || 'balanced';
+  // Environment-based configuration with aggressive defaults for faster response
+  private readonly vadSilenceMs = parseInt(process.env.VAD_SILENCE_MS || '250'); // Reduced from 300ms
+  private readonly maxUtteranceMs = parseInt(process.env.MAX_UTTERANCE_MS || '6000'); // Reduced from 8000ms
+  private readonly asrProfile = (process.env.ASR_PROFILE as 'strict'|'balanced'|'aggressive') || 'aggressive';
   
-  private readonly minDurationMs = parseInt(process.env.ASR_MIN_MS || this.asrProfiles[this.asrProfile].minDurationMs.toString());
-  private readonly minConfidence = parseFloat(process.env.ASR_MIN_CONFIDENCE || this.asrProfiles[this.asrProfile].minConfidence.toString());
+  private readonly minDurationMs = parseInt(process.env.ASR_MIN_MS || '200'); // Direct env var, reduced from 250ms
+  private readonly minConfidence = parseFloat(process.env.ASR_MIN_CONFIDENCE || '0.30'); // Direct env var, reduced from 0.5
 
   // VAD state tracking for silence detection
   private vadState: Map<string, { lastSpeechTime: number; silenceStartTime?: number }> = new Map();

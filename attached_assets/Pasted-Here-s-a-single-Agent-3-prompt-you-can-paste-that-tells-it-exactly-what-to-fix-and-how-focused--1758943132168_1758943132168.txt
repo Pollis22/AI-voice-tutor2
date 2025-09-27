@@ -1,0 +1,132 @@
+Here’s a **single Agent 3 prompt** you can paste that tells it exactly what to fix and how, focused on the two problems you called out: **(A) ~8-second lag** and **(B) poor answer handling (no explicit “correct/incorrect”, no guided retry).**
+It gives Agent 3 concrete, minimal-risk edits, env knobs, and acceptance tests so it won’t come back with vague changes.
+
+---
+
+```markdown
+AGENT 3 — EMERGENCY FIX: LATENCY + ANSWER HANDLING
+
+I’m seeing ~8s delay between my speaking and the tutor’s reply, and the tutor does not clearly acknowledge answers as correct/incorrect or guide me to try again. Fix both issues now with minimal, surgical changes.
+
+############################
+## A. DIAGNOSE & MEASURE  ##
+############################
+1) Add timing metrics (ms) for every turn:
+   - asr_start → asr_end
+   - llm_start → llm_first_token (time to first token)
+   - tts_start → tts_first_audio
+   - total_latency (asr_end→tts_first_audio)
+   Persist last 50 turns per session (in-memory ring buffer) and expose at `/api/debug/latency?sessionId=...` (auth-gated).
+
+2) Log when we hit 429/timeout and when fallbacks are used (with counts). This helps prove whether lag is ASR/VAD, LLM, or TTS.
+
+#################################
+## B. CUT VOICE LATENCY (ASAP) ##
+#################################
+3) Lower gating thresholds (env-driven; safe defaults):
+   - ASR_MIN_MS=200
+   - ASR_MIN_CONFIDENCE=0.30
+   - VAD_SILENCE_MS=250
+   - MAX_UTTERANCE_MS=6000
+   - STREAM_PARTIALS=true  (send interim ASR to UI but DON’T reply yet)
+   - TTS_STREAMING=true     (sentence-by-sentence / chunked)
+   Ensure these are read in the input-gating layer and TTS layer.
+
+4) Immediate micro-ack (“heard you”) turn:
+   - As soon as ASR final transcript is available, stream a 1-short-sentence acknowledgement within 300–500ms:
+     “Got it — thanks.” / “I hear you.” / “Nice try.”
+   - Then continue streaming the **teaching** reply (don’t wait to craft both first).
+   - Ensure micro-ack is skipped if final reply is already ready (<300ms).
+
+5) First-token SLA:
+   - Target: `llm_first_token - llm_start ≤ 1200ms` on GPT-4o-mini (or current model).
+   - If exceeded, immediately stream an “I’m thinking…” filler (max 1 line), then continue with the real reply.
+
+6) Circuit breaker + quick fallback:
+   - On 429/timeout, reply immediately with a **lesson-specific** fallback sentence (math/english/spanish) and a question (don’t repeat the previous one). Log the fallback event.
+
+#######################################
+## C. ANSWER ACK + GUIDED CORRECTION ##
+#######################################
+7) Always classify the user’s last turn relative to the **current lesson step**:
+   - Needs `context.lastQuestion`, `context.expectedAnswer`, `context.questionType ('math'|'mcq'|'short')`.
+   - If missing, derive from the active step in the lesson JSON.
+
+8) Response policy (every turn):
+   - If **correct** → 1 sentence praise + advance step + new question.
+     Example: “Correct — great work! What comes next: … ?”
+   - If **incorrect** → 1 sentence gentle correction + 1 short reason + **re-ask differently** (new wording/hint). Do not repeat verbatim.
+     Example: “Close — it’s 3 because we add 1 to 2. Try this one: what’s one more than 4?”
+   - If **no/unclear** → 1 sentence empathy + hint + re-ask.
+   - Always max 2 sentences and end with a question.
+
+9) Subject/step grounding (no mixing):
+   - Lock to `lessonPlan.subject` and `lessonPlan.currentStep`. Do not ask math inside English (and vice-versa). If an off-topic generation appears, rewrite it to fit the topic before sending.
+
+10) Anti-repeat guard:
+   - Within a session, do not send the same/near-same question twice in a row. If the next prompt matches last prompt ≥0.85 Jaccard similarity, swap in a varied hint from a small pool.
+
+################################
+## D. ENV + MODEL CHOICES     ##
+################################
+11) Add env toggles (read at startup):
+```
+
+ASR_MIN_MS=200
+ASR_MIN_CONFIDENCE=0.30
+VAD_SILENCE_MS=250
+MAX_UTTERANCE_MS=6000
+STREAM_PARTIALS=true
+TTS_STREAMING=true
+LLM_MODEL=gpt-4o-mini        # use fast/cheap by default
+LLM_MAX_RETRIES=2
+LLM_TIMEOUT_MS=3500
+
+```
+
+12) Use `LLM_MODEL=gpt-4o-mini` for teaching turns (fast). If we already have a heavy model selected, keep it only for rare complex explanations.
+
+############################
+## E. ACCEPTANCE TESTS    ##
+############################
+13) Create quick endpoint tests (can be lightweight or Playwright):
+- **Latency**: first audio (or first text token) ≤ 2.0s median over 5 turns.
+- **Correctness ACK**: send an obviously correct answer → receives “Correct” (or equivalent) within 2 sentences and advances step (step increments).
+- **Incorrect flow**: send wrong answer → receives correction + brief reason + re-ask, not a verbatim repeat.
+- **No subject mixing**: start English lesson → never asks about numbers; start Math → never mentions parts of speech.
+- **No repeats**: same question is not asked twice in a row in one session.
+
+################################
+## F. UX COPY (READY-TO-USE)  ##
+################################
+14) Micro-ack pool (rotate):
+- “Got it — thanks.”
+- “I hear you.”
+- “Nice try, let’s check it.”
+- “Thanks — let me think with you.”
+
+15) Math fallback pool (rotate; always ends with a question):
+- “Let’s add 1 to 2 together — what do we get?”
+- “Count up from 2: 2, 3… what comes next?”
+- “Think of three items in a row — which position is last?”
+
+16) English fallback pool:
+- “Let’s spot a noun — which word names a person, place, or thing?”
+- “Try a verb — which word shows an action?”
+- “Look for an adjective — which word describes a thing?”
+
+############################
+## G. DONE WHEN…          ##
+############################
+- First audio/text token is perceived by the user within **≤2.0s** median (from speech end).  
+- Every answer is explicitly acknowledged as **correct** or **incorrect**, with guided retry on incorrect.  
+- No repetition of the same question back-to-back.  
+- No mixing subjects; questions remain on the active lesson step.  
+- Latency and fallback events are visible at `/api/debug/latency` for verification.
+
+Make these changes with minimal surface edits, guarded by env flags, and keep existing APIs stable. Report back with: (1) which latency component was dominant, (2) the new median time-to-first-token over 10 turns, and (3) screenshots/JSON from the debug endpoint showing improvements.
+```
+
+---
+
+If you want, I can also give you a **companion Claude prompt for the tutor’s system message** (to enforce the short, affirmative, guided-correction style) — but the Agent3 prompt above targets the actual latency + logic bugs so you get tangible improvements right away.
