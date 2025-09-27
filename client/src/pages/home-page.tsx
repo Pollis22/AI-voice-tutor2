@@ -5,6 +5,7 @@ import { ProgressRing } from "@/components/progress-ring";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { useLocation } from "wouter";
+import jieLogo from "@/assets/jie-logo.png";
 
 export default function HomePage() {
   const { user } = useAuth();
@@ -32,8 +33,8 @@ export default function HomePage() {
   }
 
   const handleResumeSession = () => {
-    if (resumeData?.lessonId) {
-      setLocation(`/lesson/${resumeData.lessonId}`);
+    if ((resumeData as any)?.lessonId) {
+      setLocation(`/lesson/${(resumeData as any).lessonId}`);
     }
   };
 
@@ -55,21 +56,30 @@ export default function HomePage() {
         <div className="max-w-6xl mx-auto space-y-8">
           
           {/* Welcome Section */}
-          <div className="bg-gradient-to-r from-primary to-secondary rounded-xl p-8 text-white">
-            <h1 className="text-3xl font-bold mb-2" data-testid="text-welcome">
-              Welcome back, {dashboard?.user?.firstName || 'Student'}! 👋
-            </h1>
-            <p className="text-primary-foreground/80 text-lg">Ready to continue your learning journey?</p>
+          <div className="bg-gradient-to-r from-primary to-primary/80 rounded-xl p-8 text-white">
+            <div className="flex items-center gap-4 mb-4">
+              <img 
+                src={jieLogo} 
+                alt="JIE Mastery Logo" 
+                className="h-12 w-auto"
+              />
+              <div>
+                <h1 className="text-3xl font-bold" data-testid="text-welcome">
+                  Welcome back, {(dashboard as any)?.user?.firstName || 'Student'}! 👋
+                </h1>
+                <p className="text-primary-foreground/90 text-lg">Ready to master your subjects with JIE Mastery Tutor?</p>
+              </div>
+            </div>
           </div>
 
           {/* Resume Learning Card */}
-          {resumeData?.hasResumeSession && (
+          {(resumeData as any)?.hasResumeSession && (
             <Card className="shadow-sm">
               <CardContent className="pt-6">
                 <div className="flex items-center justify-between mb-4">
                   <h2 className="text-xl font-semibold text-foreground">Resume Where You Left Off</h2>
                   <span className="text-sm text-muted-foreground" data-testid="text-last-activity">
-                    {resumeData.session?.lastActivity}
+                    {(resumeData as any)?.session?.lastActivity}
                   </span>
                 </div>
                 <div className="flex items-center space-x-4">
@@ -80,20 +90,20 @@ export default function HomePage() {
                   </div>
                   <div className="flex-1">
                     <h3 className="font-medium text-foreground" data-testid="text-resume-subject">
-                      {resumeData.session?.subject}
+                      {(resumeData as any)?.session?.subject}
                     </h3>
                     <p className="text-muted-foreground text-sm" data-testid="text-resume-lesson">
-                      {resumeData.session?.lesson}
+                      {(resumeData as any)?.session?.lesson}
                     </p>
                     <div className="flex items-center space-x-2 mt-2">
                       <div className="w-24 bg-muted rounded-full h-2">
                         <div 
                           className="bg-secondary h-2 rounded-full" 
-                          style={{ width: `${resumeData.session?.progressPercentage || 0}%` }}
+                          style={{ width: `${(resumeData as any)?.session?.progressPercentage || 0}%` }}
                         />
                       </div>
                       <span className="text-xs text-muted-foreground">
-                        {resumeData.session?.progressPercentage || 0}% complete
+                        {(resumeData as any)?.session?.progressPercentage || 0}% complete
                       </span>
                     </div>
                   </div>
@@ -111,7 +121,7 @@ export default function HomePage() {
 
           {/* Subject Progress Overview */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {dashboard?.subjectProgress?.map((subject: any, index: number) => {
+            {(dashboard as any)?.subjectProgress?.map((subject: any, index: number) => {
               const colors = [
                 { bg: 'bg-blue-100', text: 'text-blue-600', progress: 'text-blue-600' },
                 { bg: 'bg-green-100', text: 'text-green-600', progress: 'text-green-600' },
@@ -178,13 +188,13 @@ export default function HomePage() {
                   <div className="flex justify-between items-center">
                     <span className="text-sm text-muted-foreground">Voice minutes used</span>
                     <span className="font-medium" data-testid="text-usage-minutes">
-                      {dashboard?.usage?.voiceMinutes || '0 / 60 min'}
+                      {(dashboard as any)?.usage?.voiceMinutes || '0 / 60 min'}
                     </span>
                   </div>
                   <div className="w-full bg-muted rounded-full h-3">
                     <div 
                       className="bg-gradient-to-r from-secondary to-primary h-3 rounded-full transition-all duration-500" 
-                      style={{ width: `${Math.min(dashboard?.usage?.percentage || 0, 100)}%` }}
+                      style={{ width: `${Math.min((dashboard as any)?.usage?.percentage || 0, 100)}%` }}
                     />
                   </div>
                   <div className="flex justify-between text-xs text-muted-foreground">
@@ -196,7 +206,7 @@ export default function HomePage() {
                       <svg className="w-4 h-4 inline mr-1 text-secondary" fill="currentColor" viewBox="0 0 20 20">
                         <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd"/>
                       </svg>
-                      {dashboard?.usage?.percentage < 80 
+                      {((dashboard as any)?.usage?.percentage || 0) < 80 
                         ? "You have plenty of voice time remaining this week!"
                         : "Consider upgrading for more voice time!"
                       }
