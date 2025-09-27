@@ -5,7 +5,7 @@
 
 ## Overview
 
-This is a production-ready conversational AI tutoring web platform that enables students to learn Math, English, and Spanish through interactive voice conversations, personalized quizzes, and adaptive learning paths. The platform uses advanced AI technologies to provide a Socratic teaching method, adapting to each student's pace and learning style while tracking progress and providing immediate feedback.
+This is a production-ready conversational AI tutoring web platform that enables students to learn Math, English, and Spanish through interactive voice conversations, personalized quizzes, and adaptive learning paths. The platform now features a **multi-agent ElevenLabs ConvAI system** with five age-specific AI tutors (K-2, Grades 3-5, 6-8, 9-12, College/Adult), each optimized for their target age group with appropriate complexity, vocabulary, and teaching approaches.
 
 ## User Preferences
 
@@ -27,14 +27,19 @@ The application follows a modern full-stack architecture using:
 - Password hashing using Node.js scrypt for security
 
 ### Voice Technology Integration
-The platform implements an advanced voice architecture with enhanced quality and expressiveness:
-- **Live Conversations**: OpenAI Realtime API with WebRTC for real-time speech-to-speech interactions
-- **Advanced TTS**: Azure Neural Text-to-Speech (en-US-AriaNeural - younger, friendlier voice) with SSML prosody controls
-- **Energy Level System**: Learner-configurable voice styles (calm, neutral, upbeat) with dynamic prosody mapping
-- **Enhanced AI Responses**: GPT-4o integration with optimized conversation parameters and Socratic teaching prompts
-- **Streaming & Barge-in**: Real-time audio streaming with sentence splitting and interruption capability
-- **Voice Router**: Comprehensive server-side endpoints for token generation, audio narration, and energy controls
-- **Test Mode**: Mock voice functionality for testing environments via `VOICE_TEST_MODE=1`
+**Phase 1 Complete: Multi-Agent ElevenLabs ConvAI System**
+- **Five Age-Specific Agents**: Dedicated AI tutors for K-2, Grades 3-5, 6-8, 9-12, and College/Adult learners
+- **Progressive Complexity**: Different GPT models (Nano/Mini/Full) and reasoning levels per age group
+- **Dynamic Agent Switching**: Real-time switching between agents based on student level and subject selection
+- **Subject Starters**: Contextual conversation initialization for Math, English, Spanish, and General topics
+- **Session Continuity**: LocalStorage-based progress tracking with session summaries and resume capability
+- **Age-Appropriate Greetings**: Customized welcome messages for each age group displayed in UI
+- **Metadata Integration**: Student name and grade information passed to ConvAI for personalized interactions
+
+**Legacy Voice Stack (Disabled when USE_CONVAI=true):**
+- **Live Conversations**: OpenAI Realtime API with WebRTC (superseded by ConvAI)
+- **Advanced TTS**: Azure Neural Text-to-Speech with SSML controls (fallback option)
+- **Test Mode**: Mock voice functionality via `VOICE_TEST_MODE=1`
 
 ### AI & Learning Engine
 - **Primary AI Model**: OpenAI GPT-4o with fallback to GPT-4o-mini for enhanced conversation quality

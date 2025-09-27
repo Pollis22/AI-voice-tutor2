@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useEffect, useRef, useState } from "react";
-import { AGENTS, type AgentLevel } from "@/agents";
+import { AGENTS, GREETINGS, type AgentLevel } from "@/agents";
 
 declare global {
   namespace JSX {
@@ -63,6 +63,7 @@ export default function TutorPage() {
   const [studentName, setStudentName] = useState("");
   const [gradeText, setGradeText] = useState("");
   const [isStarted, setIsStarted] = useState(false);
+  const [lastSummary, setLastSummary] = useState(memo.lastSummary || "");
 
   useEffect(() => {
     if (document.querySelector('script[data-elevenlabs-convai]')) {
@@ -81,7 +82,7 @@ export default function TutorPage() {
 
   const composeFirstUserMessage = () => {
     const starter = SUBJECT_STARTERS[subject] || "";
-    const tail = memo.lastSummary ? ` Also, resume from last time: ${memo.lastSummary}` : "";
+    const tail = lastSummary ? ` Also, resume from last time: ${lastSummary}` : "";
     return `${starter}${tail}`.trim();
   };
 
@@ -93,18 +94,65 @@ export default function TutorPage() {
     if (firstUserMessage) el.setAttribute("first-user-message", firstUserMessage);
     if (studentName) el.setAttribute("metadata-student-name", studentName);
     if (gradeText) el.setAttribute("metadata-student-grade", gradeText);
+    
+    // Add event listeners for session continuity
+    el.addEventListener('conversation-end', (event: any) => {
+      const summary = event.detail?.summary || "Session completed";
+      setLastSummary(summary);
+      const currentProgress = loadProgress();
+      saveProgress({
+        ...currentProgress,
+        lastLevel: level,
+        lastSubject: subject,
+        lastSummary: summary,
+        updatedAt: new Date().toISOString(),
+      });
+    });
+    
     containerRef.current.appendChild(el);
 
+    // Save initial progress on mount
+    const currentProgress = loadProgress();
     saveProgress({
+      ...currentProgress,
       lastLevel: level,
       lastSubject: subject,
-      lastSummary: memo.lastSummary,
       updatedAt: new Date().toISOString(),
     });
     setIsStarted(true);
   };
 
-  const startTutor = () => mount(AGENTS[level], composeFirstUserMessage());
+  const startTutor = () => {
+    setIsStarted(true);
+  };
+  
+  const switchTutor = () => {
+    if (containerRef.current) {
+      containerRef.current.innerHTML = "";
+    }
+    // Remount with new configuration
+    setTimeout(() => mount(AGENTS[level], composeFirstUserMessage()), 100);
+  };
+  
+  // Mount the widget when started
+  useEffect(() => {
+    if (isStarted && scriptReady) {
+      mount(AGENTS[level], composeFirstUserMessage());
+    }
+  }, [isStarted, scriptReady]);
+  
+  // Save progress when level or subject changes
+  useEffect(() => {
+    if (isStarted) {
+      const currentProgress = loadProgress();
+      saveProgress({
+        ...currentProgress,
+        lastLevel: level,
+        lastSubject: subject,
+        updatedAt: new Date().toISOString(),
+      });
+    }
+  }, [level, subject, isStarted]);
 
   return (
     <div className="min-h-screen bg-background">
@@ -132,7 +180,7 @@ export default function TutorPage() {
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="level">Level</Label>
-                  <Select value={level} onValueChange={(value: AgentLevel) => setLevel(value)} disabled={isStarted}>
+                  <Select value={level} onValueChange={(value: AgentLevel) => setLevel(value)}>
                     <SelectTrigger data-testid="select-level">
                       <SelectValue />
                     </SelectTrigger>
@@ -148,7 +196,7 @@ export default function TutorPage() {
 
                 <div className="space-y-2">
                   <Label htmlFor="subject">Subject</Label>
-                  <Select value={subject} onValueChange={setSubject} disabled={isStarted}>
+                  <Select value={subject} onValueChange={setSubject}>
                     <SelectTrigger data-testid="select-subject">
                       <SelectValue />
                     </SelectTrigger>
@@ -168,7 +216,6 @@ export default function TutorPage() {
                     placeholder="Optional"
                     value={studentName}
                     onChange={(e) => setStudentName(e.target.value)}
-                    disabled={isStarted}
                     data-testid="input-student-name"
                   />
                 </div>
@@ -180,21 +227,58 @@ export default function TutorPage() {
                     placeholder="e.g., 3rd grade"
                     value={gradeText}
                     onChange={(e) => setGradeText(e.target.value)}
-                    disabled={isStarted}
                     data-testid="input-grade-text"
                   />
                 </div>
               </div>
 
-              <div className="flex justify-center pt-4">
-                <Button 
-                  onClick={startTutor} 
-                  disabled={!scriptReady}
-                  size="lg"
-                  data-testid="button-start-tutor"
-                >
-                  {isStarted ? 'Switch Tutor' : 'Start Tutor'}
-                </Button>
+              <div className="flex justify-center gap-4 pt-4">
+                {!isStarted ? (
+                  <Button 
+                    onClick={startTutor} 
+                    disabled={!scriptReady}
+                    size="lg"
+                    data-testid="button-start-tutor"
+                  >
+                    Start Tutor
+                  </Button>
+                ) : (
+                  <>
+                    <Button 
+                      onClick={switchTutor} 
+                      disabled={!scriptReady}
+                      size="lg"
+                      data-testid="button-switch-tutor"
+                    >
+                      Switch Tutor
+                    </Button>
+                    <Button 
+                      onClick={() => {
+                        setIsStarted(false);
+                        if (containerRef.current) {
+                          containerRef.current.innerHTML = "";
+                        }
+                      }} 
+                      variant="outline"
+                      size="lg"
+                      data-testid="button-stop-tutor"
+                    >
+                      Stop Session
+                    </Button>
+                  </>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Greeting Preview */}
+          <Card>
+            <CardContent className="pt-6">
+              <div className="text-center space-y-2">
+                <h3 className="text-lg font-semibold">Your Tutor Will Say:</h3>
+                <p className="text-muted-foreground italic" data-testid="text-greeting-preview">
+                  "{GREETINGS[level]}"
+                </p>
               </div>
             </CardContent>
           </Card>
@@ -207,20 +291,28 @@ export default function TutorPage() {
                   <div className="animate-spin w-8 h-8 border-4 border-primary border-t-transparent rounded-full mx-auto mb-4" />
                   <p className="text-muted-foreground">Loading ConvAI widget...</p>
                 </div>
-              ) : !isStarted ? (
-                <div className="text-center py-16" data-testid="text-not-started">
-                  <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-4">
-                    <span className="text-3xl">🎓</span>
-                  </div>
-                  <h3 className="text-xl font-semibold text-foreground mb-2">
-                    Ready to Start Learning
-                  </h3>
-                  <p className="text-muted-foreground mb-4">
-                    Configure your settings above and click "Start Tutor" to begin your personalized learning session.
-                  </p>
-                </div>
               ) : (
-                <div ref={containerRef} data-testid="convai-widget-container" />
+                <>
+                  <div 
+                    className={`${!isStarted ? "block" : "hidden"} text-center py-16`} 
+                    data-testid="text-not-started"
+                  >
+                    <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-4">
+                      <span className="text-3xl">🎓</span>
+                    </div>
+                    <h3 className="text-xl font-semibold text-foreground mb-2">
+                      Ready to Start Learning
+                    </h3>
+                    <p className="text-muted-foreground mb-4">
+                      Configure your settings above and click "Start Tutor" to begin your personalized learning session.
+                    </p>
+                  </div>
+                  <div 
+                    ref={containerRef} 
+                    className={`${isStarted ? "block" : "hidden"}`}
+                    data-testid="convai-widget-container" 
+                  />
+                </>
               )}
             </CardContent>
           </Card>
