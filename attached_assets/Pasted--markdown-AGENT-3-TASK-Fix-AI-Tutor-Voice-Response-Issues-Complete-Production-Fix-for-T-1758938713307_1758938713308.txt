@@ -1,0 +1,707 @@
+```markdown
+AGENT 3 TASK — Fix AI Tutor Voice & Response Issues
+
+## Complete Production Fix for Tutor Problems
+Fix slow response/lag, repeated prompts, missing answer corrections, fabricated user turns, topic drift, and 429 fallback loops. All changes are modular with minimal edits to existing files.
+
+### Step 1: Create Phrase Guard Service
+Create `server/services/phraseGuard.ts`:
+```typescript
+// Comprehensive guard service for inclusive, non-repetitive, focused tutoring
+const bannedPhrases = [
+  'show me.*fingers', 'hold up.*fingers', 'count.*your.*fingers',
+  'on your hand', 'use your hand', 'with your hand',
+  'stand up', 'sit down', 'walk', 'run', 'jump',
+  'look at your', 'touch your', 'point to your',
+  'raise your hand', 'clap your hands',
+  'can you see', 'can you hear', 'can you feel'
+];
+
+const inclusiveReplacements: Record<string, string> = {
+  'your hand': 'a hand',
+  'your fingers': 'fingers',
+  'you have': 'there are',
+  'can you': 'let\'s',
+  'show me': 'think about',
+  'count on your': 'count using',
+  'look at your': 'think about',
+  'touch your': 'imagine',
+  'point to': 'name'
+};
+
+export function sanitizeInclusive(text: string): string {
+  let result = text;
+  Object.entries(inclusiveReplacements).forEach(([bad, good]) => {
+    const regex = new RegExp(bad, 'gi');
+    result = result.replace(regex, good);
+  });
+  return result;
+}
+
+export function hardBlockIfBanned(text: string): string {
+  const lower = text.toLowerCase();
+  for (const banned of bannedPhrases) {
+    if (new RegExp(banned, 'i').test(lower)) {
+      console.warn('[PhraseGuard] Blocked banned phrase:', banned);
+      return "Let's practice together. What number comes after 2?";
+    }
+  }
+  return text;
+}
+
+export function enforceTwoSentenceQuestion(text: string): string {
+  // Split into sentences
+  const sentences = text.match(/[^.!?]+[.!?]+/g) || [text];
+  
+  // Take only first 2 sentences
+  let result = sentences.slice(0, 2).join(' ').trim();
+  
+  // Ensure ends with question
+  if (!result.endsWith('?')) {
+    const endings = [
+      "What do you think?",
+      "Can you try it?",
+      "What's your answer?",
+      "Ready to solve this?",
+      "How does that sound?"
+    ];
+    const ending = endings[Math.floor(Math.random() * endings.length)];
+    result = result.replace(/[.!?]?\s*$/, '. ') + ending;
+  }
+  
+  return result;
+}
+
+export function topicGuard(text: string, topic: string): string {
+  const topicWords = topic.toLowerCase().split(/\s+/);
+  const textWords = text.toLowerCase().split(/\s+/);
+  
+  // Check if text mentions the topic
+  const hasTopicWord = topicWords.some(word => 
+    textWords.some(textWord => textWord.includes(word))
+  );
+  
+  if (!hasTopicWord && text.length > 20) {
+    return `Let's focus on ${topic}. ${text}`;
+  }
+  
+  return text;
+}
+
+export function antiRepeat(
+  sessionId: string, 
+  text: string, 
+  recentMap: Map<string, string[]>
+): string {
+  const recent = recentMap.get(sessionId) || [];
+  const normalized = text.toLowerCase().trim();
+  
+  // Check for exact or near-exact repeats
+  const isRepeat = recent.some(r => {
+    const similarity = getSimilarity(r.toLowerCase(), normalized);
+    return similarity > 0.85;
+  });
+  
+  if (isRepeat) {
+    const alternatives = [
+      "Let me try explaining differently. What's 2 plus 1?",
+      "Here's another approach. If you have 2 apples and get 1 more, how many total?",
+      "Think about it this way. What number is one more than 2?",
+      "Let's use a different example. Count: 1, 2, and then?",
+      "Try breaking it down. Start at 2 and add 1, what do you get?"
+    ];
+    const alt = alternatives[Math.floor(Math.random() * alternatives.length)];
+    console.log('[AntiRepeat] Replaced repetitive response');
+    return alt;
+  }
+  
+  // Store this response
+  recent.push(text);
+  if (recent.length > 3) recent.shift();
+  recentMap.set(sessionId, recent);
+  
+  return text;
+}
+
+function getSimilarity(a: string, b: string): number {
+  const wordsA = new Set(a.split(/\s+/));
+  const wordsB = new Set(b.split(/\s+/));
+  const intersection = new Set([...wordsA].filter(x => wordsB.has(x)));
+  const union = new Set([...wordsA, ...wordsB]);
+  return union.size > 0 ? intersection.size / union.size : 0;
+}
+
+// Never fabricate user responses
+export function preventUserFabrication(messages: any[]): any[] {
+  return messages.filter(msg => {
+    if (msg.role === 'assistant') {
+      const forbidden = ['you said:', 'you answered:', 'you told me:', 'your answer was:'];
+      const content = msg.content.toLowerCase();
+      return !forbidden.some(phrase => content.includes(phrase));
+    }
+    return true;
+  });
+}
+```
+
+### Step 2: Create Answer Checker Service
+Create `server/services/answerChecker.ts`:
+```typescript
+export class AnswerValidator {
+  private numberWords: Record<string, string> = {
+    'zero': '0', 'one': '1', 'two': '2', 'three': '3', 'four': '4',
+    'five': '5', 'six': '6', 'seven': '7', 'eight': '8', 'nine': '9',
+    'ten': '10', 'eleven': '11', 'twelve': '12', 'thirteen': '13',
+    'fourteen': '14', 'fifteen': '15', 'sixteen': '16', 'seventeen': '17',
+    'eighteen': '18', 'nineteen': '19', 'twenty': '20'
+  };
+
+  normalize(text: string): string {
+    let normalized = text.toLowerCase().trim();
+    
+    // Convert number words to digits
+    Object.entries(this.numberWords).forEach(([word, digit]) => {
+      normalized = normalized.replace(new RegExp(`\\b${word}\\b`, 'g'), digit);
+    });
+    
+    // Remove punctuation except math operators
+    normalized = normalized.replace(/[^a-z0-9\s+\-*/().]/g, '');
+    
+    return normalized.trim();
+  }
+
+  checkMath(student: string, correct: string, tolerance = 0.01): boolean {
+    const studentNorm = this.normalize(student);
+    const correctNorm = this.normalize(correct);
+    
+    if (studentNorm === correctNorm) return true;
+    
+    const studentNum = this.safeParseFloat(studentNorm);
+    const correctNum = this.safeParseFloat(correctNorm);
+    
+    if (studentNum !== null && correctNum !== null) {
+      return Math.abs(studentNum - correctNum) <= tolerance;
+    }
+    
+    return false;
+  }
+
+  checkMCQ(student: string, correct: string): boolean {
+    const studentNorm = this.normalize(student);
+    const letter = correct.toLowerCase().charAt(0);
+    
+    // Accept: 'b', 'option b', 'answer b', '2' (for b)
+    const letterIndex = letter.charCodeAt(0) - 96;
+    const accepted = [
+      letter,
+      `option ${letter}`,
+      `answer ${letter}`,
+      letterIndex.toString()
+    ];
+    
+    return accepted.some(a => studentNorm === a || studentNorm.includes(a));
+  }
+
+  checkShort(student: string, correct: string, maxDistance = 2): boolean {
+    const s1 = this.normalize(student);
+    const s2 = this.normalize(correct);
+    
+    if (s1 === s2) return true;
+    if (s1.includes(s2) || s2.includes(s1)) return true;
+    
+    return this.levenshtein(s1, s2) <= maxDistance;
+  }
+
+  generateCorrection(type: string, correct: string, student: string): string {
+    const corrections = {
+      math: `Not quite - the answer is ${correct}. Let me help you understand why.`,
+      mcq: `Actually, the correct answer is ${correct}. Let's review this.`,
+      short: `Close! The answer is "${correct}".`,
+      default: `The correct answer is ${correct}. Let's work through it.`
+    };
+    return corrections[type] || corrections.default;
+  }
+
+  private safeParseFloat(text: string): number | null {
+    // Try direct parse
+    const num = parseFloat(text);
+    if (!isNaN(num)) return num;
+    
+    // Try basic math expression (safely)
+    const match = text.match(/^(\d+(?:\.\d+)?)\s*([\+\-\*/])\s*(\d+(?:\.\d+)?)$/);
+    if (match) {
+      const [, a, op, b] = match;
+      const numA = parseFloat(a);
+      const numB = parseFloat(b);
+      
+      switch (op) {
+        case '+': return numA + numB;
+        case '-': return numA - numB;
+        case '*': return numA * numB;
+        case '/': return numB !== 0 ? numA / numB : null;
+      }
+    }
+    
+    return null;
+  }
+
+  private levenshtein(a: string, b: string): number {
+    const matrix: number[][] = [];
+    
+    for (let i = 0; i <= b.length; i++) {
+      matrix[i] = [i];
+    }
+    for (let j = 0; j <= a.length; j++) {
+      matrix[0][j] = j;
+    }
+    
+    for (let i = 1; i <= b.length; i++) {
+      for (let j = 1; j <= a.length; j++) {
+        if (b.charAt(i - 1) === a.charAt(j - 1)) {
+          matrix[i][j] = matrix[i - 1][j - 1];
+        } else {
+          matrix[i][j] = Math.min(
+            matrix[i - 1][j - 1] + 1,
+            matrix[i][j - 1] + 1,
+            matrix[i - 1][j] + 1
+          );
+        }
+      }
+    }
+    
+    return matrix[b.length][a.length];
+  }
+}
+
+export const answerValidator = new AnswerValidator();
+```
+
+### Step 3: Create Voice Queue Manager
+Create `server/services/voiceQueue.ts`:
+```typescript
+interface QueueItem {
+  id: string;
+  userId: string;
+  sessionId: string;
+  message: string;
+  timestamp: number;
+  cancelled?: boolean;
+}
+
+export class VoiceQueueManager {
+  private queues = new Map<string, QueueItem[]>();
+  private processing = new Map<string, boolean>();
+  private inFlight = new Map<string, AbortController>();
+
+  async processWithQueue(
+    userId: string,
+    sessionId: string,
+    message: string,
+    handler: (item: QueueItem, signal: AbortSignal) => Promise<any>
+  ): Promise<any> {
+    const key = `${userId}-${sessionId}`;
+    
+    // Cancel any in-flight (barge-in)
+    this.cancelInFlight(key);
+    
+    const item: QueueItem = {
+      id: `${Date.now()}-${Math.random()}`,
+      userId,
+      sessionId,
+      message,
+      timestamp: Date.now()
+    };
+    
+    // Add to queue
+    if (!this.queues.has(key)) {
+      this.queues.set(key, []);
+    }
+    this.queues.get(key)!.push(item);
+    
+    // Process if not already processing
+    if (!this.processing.get(key)) {
+      return this.processQueue(key, handler);
+    }
+  }
+
+  private async processQueue(key: string, handler: Function): Promise<any> {
+    this.processing.set(key, true);
+    
+    try {
+      while (true) {
+        const queue = this.queues.get(key);
+        if (!queue || queue.length === 0) break;
+        
+        const item = queue.shift()!;
+        if (item.cancelled) continue;
+        
+        const controller = new AbortController();
+        this.inFlight.set(key, controller);
+        
+        try {
+          const result = await handler(item, controller.signal);
+          return result;
+        } finally {
+          this.inFlight.delete(key);
+        }
+      }
+    } finally {
+      this.processing.set(key, false);
+    }
+  }
+
+  cancelInFlight(key: string): void {
+    const controller = this.inFlight.get(key);
+    if (controller) {
+      controller.abort();
+      this.inFlight.delete(key);
+    }
+    
+    // Mark queued items as cancelled
+    const queue = this.queues.get(key);
+    if (queue) {
+      queue.forEach(item => item.cancelled = true);
+      this.queues.set(key, []);
+    }
+  }
+}
+
+export const voiceQueue = new VoiceQueueManager();
+```
+
+### Step 4: Create LLM Resilience Service
+Create `server/services/llmResilience.ts`:
+```typescript
+interface CircuitState {
+  failures: number;
+  lastFailure: number;
+  isOpen: boolean;
+}
+
+export class LLMResilience {
+  private state: CircuitState = {
+    failures: 0,
+    lastFailure: 0,
+    isOpen: false
+  };
+  
+  private readonly maxRetries = 3;
+  private readonly backoffBase = 1000;
+  private readonly circuitThreshold = 5;
+  private readonly circuitTimeout = 45000;
+
+  async executeWithResilience<T>(
+    fn: () => Promise<T>,
+    fallback: () => T,
+    signal?: AbortSignal
+  ): Promise<T> {
+    // Check circuit breaker
+    if (this.state.isOpen) {
+      if (Date.now() - this.state.lastFailure < this.circuitTimeout) {
+        console.log('[LLM] Circuit open, using fallback');
+        return fallback();
+      }
+      // Reset circuit
+      this.state.isOpen = false;
+      this.state.failures = 0;
+    }
+
+    // Retry with exponential backoff
+    for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
+      if (signal?.aborted) throw new Error('Aborted');
+      
+      try {
+        const result = await fn();
+        this.state.failures = 0;
+        return result;
+      } catch (error: any) {
+        this.state.failures++;
+        this.state.lastFailure = Date.now();
+        
+        // Check for 429 specifically
+        if (error.status === 429 || error.message?.includes('429')) {
+          console.log('[LLM] Rate limited, using fallback');
+          return fallback();
+        }
+        
+        if (this.state.failures >= this.circuitThreshold) {
+          this.state.isOpen = true;
+          console.log('[LLM] Circuit breaker opened');
+          return fallback();
+        }
+        
+        if (attempt === this.maxRetries) {
+          console.log('[LLM] Max retries exceeded');
+          return fallback();
+        }
+        
+        const delay = this.backoffBase * Math.pow(2, attempt);
+        await new Promise(r => setTimeout(r, delay));
+      }
+    }
+    
+    return fallback();
+  }
+}
+
+export const llmResilience = new LLMResilience();
+```
+
+### Step 5: Update OpenAI Service (Minimal Changes)
+Edit `server/services/openai.ts` - Add these imports at top:
+```typescript
+import { sanitizeInclusive, enforceTwoSentenceQuestion, topicGuard, antiRepeat, hardBlockIfBanned } from './phraseGuard';
+import { answerValidator } from './answerChecker';
+import { voiceQueue } from './voiceQueue';
+import { llmResilience } from './llmResilience';
+```
+
+Add module-level store after imports:
+```typescript
+const _recentBySession = new Map<string, string[]>();
+```
+
+In `generateResponse` method, wrap the OpenAI call and post-process:
+```typescript
+// Wrap entire OpenAI call in resilience
+const result = await llmResilience.executeWithResilience(
+  async () => {
+    // Existing OpenAI call here
+    return await openai.chat.completions.create({
+      model: process.env.TUTOR_MODEL || 'gpt-4o-mini',
+      messages,
+      max_tokens: 150,
+      temperature: 0.7
+    });
+  },
+  () => {
+    // Lesson-specific fallback for 429s
+    const topic = context?.lessonPlan?.topic || 'math';
+    const fallbacks = {
+      math: [
+        "Let's count together: 1, 2, 3. What comes after 3?",
+        "If you have 2 apples and get 1 more, how many total?",
+        "Think of the number between 2 and 4. What is it?"
+      ],
+      reading: [
+        "Can you spell 'cat'? C-A-T.",
+        "What letter comes after B in the alphabet?",
+        "Think of a word that rhymes with 'sun'."
+      ]
+    };
+    const pool = fallbacks[topic] || fallbacks.math;
+    return {
+      choices: [{
+        message: {
+          content: pool[Math.floor(Math.random() * pool.length)]
+        }
+      }]
+    };
+  },
+  signal // Pass abort signal if using queue
+);
+
+// Get the response text
+let finalResponse = result.choices[0].message.content || "Let's continue. What comes after 2?";
+
+// Apply all guards
+const _topic = context?.lessonPlan?.topic || context?.topic || 'math';
+const _session = sessionId || context?.sessionId || 'default';
+
+// Check answer if we have context
+if (context?.expectedAnswer && context?.lastQuestion) {
+  const isCorrect = answerValidator.checkMath(
+    message, // student answer
+    context.expectedAnswer
+  );
+  
+  if (!isCorrect) {
+    const correction = answerValidator.generateCorrection(
+      context.questionType || 'math',
+      context.expectedAnswer,
+      message
+    );
+    finalResponse = `${correction} ${finalResponse}`;
+  }
+}
+
+// Apply all guards
+finalResponse = sanitizeInclusive(finalResponse);
+finalResponse = hardBlockIfBanned(finalResponse);
+finalResponse = topicGuard(finalResponse, _topic);
+finalResponse = antiRepeat(_session, finalResponse, _recentBySession);
+finalResponse = enforceTwoSentenceQuestion(finalResponse);
+
+return { response: finalResponse };
+```
+
+### Step 6: Update Input Gating (Reduce Lag)
+Edit `server/services/inputGating.ts` or create if not exists:
+```typescript
+export const ASR_MIN_MS = Number(process.env.ASR_MIN_MS || 200);
+export const ASR_MIN_CONFIDENCE = Number(process.env.ASR_MIN_CONFIDENCE || 0.3);
+export const VAD_SILENCE_MS = Number(process.env.VAD_SILENCE_MS || 250);
+export const MAX_UTTERANCE_MS = Number(process.env.MAX_UTTERANCE_MS || 6000);
+
+export function shouldProcessUtterance(
+  text: string,
+  duration: number,
+  confidence: number
+): boolean {
+  return (
+    text.trim().length > 0 &&
+    duration >= ASR_MIN_MS &&
+    confidence >= ASR_MIN_CONFIDENCE
+  );
+}
+
+export function waitForSilence(): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, VAD_SILENCE_MS));
+}
+```
+
+### Step 7: Update Voice Routes (Minimal)
+Edit `server/routes/voiceRoutes.ts` - Add queue processing:
+```typescript
+import { voiceQueue } from '../services/voiceQueue';
+
+// In POST /conversation handler, wrap the processing:
+const result = await voiceQueue.processWithQueue(
+  userId,
+  sessionId,
+  message,
+  async (item, signal) => {
+    // Pass signal to OpenAI service for cancellation
+    return await openAIService.generateResponse(
+      item.message,
+      item.sessionId,
+      { ...context, signal }
+    );
+  }
+);
+```
+
+### Step 8: Environment Variables
+Add to `.env`:
+```bash
+# Speech Recognition (reduced for faster response)
+ASR_MIN_MS=200
+ASR_MIN_CONFIDENCE=0.3
+VAD_SILENCE_MS=250
+MAX_UTTERANCE_MS=6000
+
+# Model
+TUTOR_MODEL=gpt-4o-mini
+
+# Resilience
+LLM_MAX_RETRIES=3
+LLM_CIRCUIT_TIMEOUT_MS=45000
+```
+
+### Step 9: Create Tests
+Create `tests/tutor-fixes.test.ts`:
+```typescript
+import { describe, test, expect } from '@jest/globals';
+import { sanitizeInclusive, hardBlockIfBanned, enforceTwoSentenceQuestion, topicGuard } from '../server/services/phraseGuard';
+import { answerValidator } from '../server/services/answerChecker';
+
+describe('Tutor Fixes Complete', () => {
+  test('Banned phrases are blocked', () => {
+    const bad = "Can you show me three fingers on your hand?";
+    const result = hardBlockIfBanned(bad);
+    expect(result).not.toContain('fingers');
+    expect(result).not.toContain('your hand');
+    expect(result).toContain('What number');
+  });
+
+  test('Inclusive sanitization works', () => {
+    const input = "Count on your fingers";
+    const result = sanitizeInclusive(input);
+    expect(result).not.toContain('your fingers');
+    expect(result).toContain('fingers');
+  });
+
+  test('Wrong answers are corrected', () => {
+    const isCorrect = answerValidator.checkMath('five', '3');
+    expect(isCorrect).toBe(false);
+    
+    const correction = answerValidator.generateCorrection('math', '3', 'five');
+    expect(correction).toContain('3');
+    expect(correction.toLowerCase()).toContain('not quite');
+  });
+
+  test('Two-sentence question format enforced', () => {
+    const input = "Good job! The answer is correct. Now let's move on to the next problem which is more difficult.";
+    const result = enforceTwoSentenceQuestion(input);
+    
+    const sentences = result.match(/[.!?]+/g) || [];
+    expect(sentences.length).toBeLessThanOrEqual(2);
+    expect(result.endsWith('?')).toBe(true);
+  });
+
+  test('Topic guard keeps focus', () => {
+    const input = "Let's talk about animals.";
+    const result = topicGuard(input, 'addition');
+    expect(result).toContain('addition');
+  });
+
+  test('Number words are normalized', () => {
+    expect(answerValidator.normalize('three')).toBe('3');
+    expect(answerValidator.normalize('FOUR')).toBe('4');
+    expect(answerValidator.normalize('twenty')).toBe('20');
+  });
+
+  test('MCQ accepts multiple formats', () => {
+    expect(answerValidator.checkMCQ('b', 'b')).toBe(true);
+    expect(answerValidator.checkMCQ('option b', 'b')).toBe(true);
+    expect(answerValidator.checkMCQ('2', 'b')).toBe(true);
+    expect(answerValidator.checkMCQ('B', 'b')).toBe(true);
+  });
+
+  test('Physical commands are made inclusive', () => {
+    const commands = [
+      "Stand up and count",
+      "Jump three times",
+      "Walk to the board",
+      "Clap your hands"
+    ];
+    
+    commands.forEach(cmd => {
+      const result = sanitizeInclusive(cmd);
+      expect(result).not.toMatch(/stand up|jump|walk to|clap your hands/i);
+    });
+  });
+});
+```
+
+### Acceptance Criteria
+✅ No ableist language or physical assumptions
+✅ Responses ≤2 sentences ending with question
+✅ Answer checking with corrections
+✅ No repeated responses (anti-repeat guard)
+✅ Topic focus maintained
+✅ 429s handled with lesson-specific fallbacks
+✅ Reduced speech lag (200ms threshold)
+✅ One LLM call per turn via queue
+✅ Barge-in cancels in-flight requests
+✅ No fabricated user turns
+
+### Testing
+```bash
+# Run tests
+npm test tests/tutor-fixes.test.ts
+
+# Test answer correction
+curl -X POST http://localhost:5000/api/voice/conversation \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message": "five",
+    "userId": "test",
+    "sessionId": "test-1",
+    "context": {
+      "lastQuestion": "What is 2 plus 2?",
+      "expectedAnswer": "4"
+    }
+  }'
+```
+```
