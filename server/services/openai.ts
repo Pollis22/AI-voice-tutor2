@@ -298,7 +298,7 @@ class OpenAIService {
         // Check if the model used the tutor_plan tool
         const toolCalls = completion.choices[0].message.tool_calls;
         if (toolCalls && toolCalls.length > 0) {
-          const tutorPlanCall = toolCalls.find((tc: any) => tc.function.name === 'tutor_plan');
+          const tutorPlanCall = toolCalls.find((tc: any) => tc.function?.name === 'tutor_plan');
           if (tutorPlanCall) {
             try {
               const planData = JSON.parse(tutorPlanCall.function.arguments);
