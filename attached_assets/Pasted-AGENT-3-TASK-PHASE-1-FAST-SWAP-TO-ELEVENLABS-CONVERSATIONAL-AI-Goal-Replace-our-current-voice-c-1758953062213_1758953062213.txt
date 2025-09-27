@@ -1,0 +1,70 @@
+AGENT 3 TASK — PHASE 1 (FAST SWAP TO ELEVENLABS CONVERSATIONAL AI)
+
+Goal
+Replace our current voice chain with ElevenLabs Conversational AI (ConvAI) embed, keep GPT-5 as the reasoning LLM, and ship a working tutor page today. Minimal edits; no breaking of Stripe, lessons, or auth.
+
+Scope (Phase 1 only)
+- Frontend: add ConvAI embed on /tutor (or equivalent page).
+- Config: read ELEVENLABS_AGENT_ID and OPENAI_API_KEY from env (no hardcoding).
+- Kill conflicts: disable our old mic/ASR/VAD/TTS pipeline via a feature flag so only ConvAI speaks.
+- Healthcheck: show that ConvAI is wired.
+- README: brief setup steps for secrets + where to paste the ElevenLabs system prompt.
+
+Do NOT implement RAG/uploads in this phase (that’s Phase 2). Do NOT remove lesson/state/Stripe files.
+
+Deliverables
+1) Frontend embed
+   - Create or update a tutor page/component to inject:
+     <elevenlabs-convai agent-id={process.env.ELEVENLABS_AGENT_ID} style="width:100%;height:640px"></elevenlabs-convai>
+     <script src="https://unpkg.com/@elevenlabs/convai-widget-embed" async></script>
+   - If ELEVENLABS_AGENT_ID is missing, render a non-blocking banner: “Set ELEVENLABS_AGENT_ID in Secrets/Deploy”.
+
+2) Feature flag to disable old voice stack
+   - Read env: USE_CONVAI=true (default true).
+   - When USE_CONVAI=true:
+     - Do NOT initialize any Azure/ASR/VAD/TTS clients, streams, or queues.
+     - Hide/disable any “Press to talk” UI tied to the old stack.
+   - Keep lesson JSON/state/Stripe unchanged.
+
+3) Config & Secrets
+   - Read these from process.env in both Editor and Deploy:
+     - ELEVENLABS_AGENT_ID= (required)
+     - ELEVENLABS_API_KEY= (optional for later phases; don’t break if absent)
+     - OPENAI_API_KEY= (used by ElevenLabs agent if configured that way)
+     - USE_CONVAI=true
+   - Add a minimal config module to centralize these reads.
+
+4) Healthcheck
+   - Extend /api/health (or create if missing) to return:
+     { convai: !!process.env.ELEVENLABS_AGENT_ID, useConvai: process.env.USE_CONVAI === 'true' }
+   - If we already return other fields, just append these keys.
+
+5) QA page note
+   - On /tutor, show a small “Connection OK” pill when ELEVENLABS_AGENT_ID is present, and a link to /api/health.
+
+6) README (short)
+   - Where to add secrets (Editor + Deploy).
+   - How to create an ElevenLabs ConvAI Agent and copy AGENT_ID.
+   - Paste this System Prompt into ElevenLabs Agent (exact block below).
+
+System Prompt (paste into ElevenLabs Agent)
+“You are TutorMind, an inclusive, empathetic AI tutor.
+Rules:
+- Stay strictly on the current lesson’s subject/topic/step; do not switch subjects unless the student asks.
+- Always acknowledge the student’s answer as CORRECT or INCORRECT.
+- If INCORRECT: one-sentence explanation + tiny hint; then re-ask in new words.
+- Keep replies ≤2 sentences total and always end with a short question.
+- Never assume physical abilities; use neutral phrasing (‘let’s imagine’, ‘think about’, ‘let’s count together’).
+- Do not repeat the same question verbatim; vary wording if the student stalls.
+- Use only the provided lesson data (and, in Phase 2, retrieved_context from uploads); do not invent facts.”
+
+Acceptance Criteria
+- Visiting /tutor renders the ElevenLabs ConvAI widget using ELEVENLABS_AGENT_ID from env.
+- Old voice stack is fully disabled when USE_CONVAI=true (no double audio, no ASR init).
+- /api/health returns { convai: true, useConvai: true } when configured.
+- In browser, speaking to the tutor yields first audio within ~1–2 seconds and responses follow the system prompt (acknowledge correct/incorrect, ≤2 sentences, ends with a question).
+
+Output
+- List the files you created/edited and the exact lines added.
+- Confirm the env variables detected at runtime.
+- Provide the URL to the /tutor page and a screenshot or text of /api/health response.
