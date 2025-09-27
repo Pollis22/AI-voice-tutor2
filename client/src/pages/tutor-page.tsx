@@ -4,7 +4,7 @@ import { TutorErrorBoundary } from "@/components/tutor-error-boundary";
 import { NetworkAwareWrapper } from "@/components/network-aware-wrapper";
 import ConvaiHost from "@/components/convai-host";
 import { AGENTS, GREETINGS, type AgentLevel } from "@/agents";
-import jieLogo from "@/assets/jie-logo.png";
+import jieLogo from "@/assets/jie-mastery-logo.png";
 
 interface ProgressData {
   lastLevel?: string;

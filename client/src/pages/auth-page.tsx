@@ -10,7 +10,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { useEffect } from "react";
-import jieLogo from "@/assets/jie-logo.png";
+import jieLogo from "@/assets/jie-mastery-logo.png";
 
 const loginSchema = z.object({
   username: z.string().min(1, "Email or username is required"),
