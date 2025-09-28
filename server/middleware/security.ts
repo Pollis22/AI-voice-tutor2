@@ -16,7 +16,9 @@ export function setupSecurityHeaders(req: Request, res: Response, next: NextFunc
     'connect-src': [
       "'self'",
       "https://api.elevenlabs.io", // ElevenLabs API
+      "https://api.us.elevenlabs.io", // ElevenLabs US API
       "wss://api.elevenlabs.io", // ElevenLabs WebSocket
+      "wss://api.us.elevenlabs.io", // ElevenLabs US WebSocket
       "https://api.stripe.com", // Stripe API
       "https://m.stripe.network", // Stripe network
       "https://www.google-analytics.com", // Analytics
@@ -25,6 +27,7 @@ export function setupSecurityHeaders(req: Request, res: Response, next: NextFunc
     'media-src': [
       "'self'",
       "https://api.elevenlabs.io", // ElevenLabs audio
+      "https://api.us.elevenlabs.io", // ElevenLabs US audio
       "data:", // Base64 audio data
       "blob:" // Audio blobs
     ],
