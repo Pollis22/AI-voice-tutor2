@@ -258,21 +258,6 @@ export default function TutorPage() {
           {/* ConvAI Widget */}
           {mounted && (
             <div className="mt-6">
-              <div className="bg-amber-100 border border-amber-400 text-amber-700 px-4 py-3 rounded mb-4">
-                <p className="font-bold">⚠️ ConvAI Setup Required</p>
-                <p className="text-sm mt-2">
-                  To enable voice conversations, you need to create your own ConvAI agent:
-                </p>
-                <ol className="text-sm mt-2 list-decimal list-inside">
-                  <li>Go to <a href="https://elevenlabs.io" target="_blank" className="underline">elevenlabs.io</a> and sign in</li>
-                  <li>Navigate to Conversational AI → Create New Agent</li>
-                  <li>Configure your agent with the tutoring instructions</li>
-                  <li>Copy your agent ID and update ELEVENLABS_AGENT_ID in Replit Secrets</li>
-                </ol>
-                <p className="text-xs mt-2 opacity-75">
-                  Current agent ID: {agentId}
-                </p>
-              </div>
               <ConvaiHost
                 agentId={agentId}
                 firstUserMessage={firstUserMessage}
