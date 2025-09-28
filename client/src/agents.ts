@@ -1,10 +1,13 @@
 // Multi-agent configuration for age-specific tutoring
+// Using single agent ID for all age groups - can be expanded to individual agents later
+const AGENT_ID = import.meta.env.VITE_ELEVENLABS_AGENT_ID || "your-agent-id-here";
+
 export const AGENTS = {
-  k2:      "agent_0101k6691t11ew6bcfm3396wfhza",
-  g3_5:    "agent_4501k66bf389e01t212acwk5vc26",
-  g6_8:    "agent_3701k66bmce0ecr8mt98nvc4pb96",
-  g9_12:   "agent_6301k66brd9gfhqtey7t3tf1masf",
-  college: "agent_8901k66cfk6ae6v8h7gj1t21enqa",
+  k2:      AGENT_ID,
+  g3_5:    AGENT_ID,
+  g6_8:    AGENT_ID,
+  g9_12:   AGENT_ID,
+  college: AGENT_ID,
 } as const;
 
 export const GREETINGS = {

@@ -19,6 +19,10 @@ export default defineConfig({
         ]
       : []),
   ],
+  define: {
+    __USE_CONVAI__: JSON.stringify(process.env.USE_CONVAI === "true"),
+    "import.meta.env.VITE_ELEVENLABS_AGENT_ID": JSON.stringify(process.env.ELEVENLABS_AGENT_ID),
+  },
   resolve: {
     alias: {
       "@": path.resolve(import.meta.dirname, "client", "src"),
