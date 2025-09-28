@@ -36,10 +36,11 @@ export default function ConvaiHost({
     s.onload = () => {
       setReady(true);
       perf.markScriptLoaded();
+      console.log('✅ ElevenLabs ConvAI script loaded successfully');
     };
-    s.onerror = () => {
+    s.onerror = (e) => {
       perf.incrementError();
-      console.error('Failed to load ElevenLabs ConvAI script');
+      console.error('❌ Failed to load ElevenLabs ConvAI script:', e);
     };
     document.body.appendChild(s);
   }, [perf]);
@@ -58,9 +59,10 @@ export default function ConvaiHost({
       el.setAttribute(`metadata-${k}`, v);
     }
 
-    // Add event listeners for performance monitoring
+    // Add event listeners for performance monitoring and debugging
     el.addEventListener("widget-ready", () => {
       perf.markFirstInteraction();
+      console.log('✅ ConvAI widget ready for agent:', agentId);
     });
 
     el.addEventListener("user-spoke", () => {
@@ -71,8 +73,9 @@ export default function ConvaiHost({
       perf.incrementTurn();
     });
 
-    el.addEventListener("error", () => {
+    el.addEventListener("error", (e) => {
       perf.incrementError();
+      console.error('❌ ConvAI widget error:', e);
     });
 
     containerRef.current.appendChild(el);
@@ -84,7 +87,9 @@ export default function ConvaiHost({
       try {
         (el as any)?.disconnect?.();
       } catch {}
-      containerRef.current!.innerHTML = "";
+      if (containerRef.current) {
+        containerRef.current.innerHTML = "";
+      }
       onUnmounted?.();
     };
   }, [ready, agentId, firstUserMessage, metadata, onMounted, onUnmounted, perf]);
