@@ -9,6 +9,8 @@ export function setupSecurityHeaders(req: Request, res: Response, next: NextFunc
       "'self'",
       ...(process.env.NODE_ENV === 'production' ? [] : ["'unsafe-inline'"]), // Only in development
       "https://unpkg.com", // ElevenLabs ConvAI widget
+      "https://api.elevenlabs.io", // ElevenLabs scripts
+      "https://api.us.elevenlabs.io", // ElevenLabs US scripts
       "https://js.stripe.com", // Stripe.js
       "https://www.googletagmanager.com", // Google Analytics
       "https://www.google-analytics.com"
@@ -51,7 +53,10 @@ export function setupSecurityHeaders(req: Request, res: Response, next: NextFunc
     ],
     'worker-src': [
       "'self'",
-      "blob:" // Web Workers
+      "blob:", // Web Workers
+      "https://unpkg.com", // ElevenLabs worker scripts
+      "https://api.elevenlabs.io", // ElevenLabs workers
+      "https://api.us.elevenlabs.io" // ElevenLabs US workers
     ]
   };
 
