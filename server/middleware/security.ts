@@ -7,6 +7,7 @@ export function setupSecurityHeaders(req: Request, res: Response, next: NextFunc
     'default-src': ["'self'"],
     'script-src': [
       "'self'",
+      "'unsafe-eval'", // Required for ElevenLabs AudioWorklet
       ...(process.env.NODE_ENV === 'production' ? [] : ["'unsafe-inline'"]), // Only in development
       "https://unpkg.com", // ElevenLabs ConvAI widget
       "https://api.elevenlabs.io", // ElevenLabs scripts

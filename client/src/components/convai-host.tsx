@@ -48,6 +48,8 @@ export default function ConvaiHost({
   useEffect(() => {
     if (!ready || !containerRef.current) return;
 
+    if (!containerRef.current) return;
+    
     containerRef.current.setAttribute("aria-busy", "true"); // accessibility hint
     containerRef.current.innerHTML = "";
 
@@ -75,10 +77,12 @@ export default function ConvaiHost({
       perf.incrementError();
     });
 
-    containerRef.current.appendChild(el);
+    if (containerRef.current) {
+      containerRef.current.appendChild(el);
+      containerRef.current.removeAttribute("aria-busy");
+    }
     perf.markWidgetMounted();
     onMounted?.();
-    containerRef.current.removeAttribute("aria-busy");
 
     return () => {
       try {
