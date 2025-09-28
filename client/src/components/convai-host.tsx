@@ -62,18 +62,22 @@ export default function ConvaiHost({
 
     // Add event listeners for performance monitoring
     el.addEventListener("widget-ready", () => {
+      console.log("[ConvAI] Widget ready for agent:", agentId);
       perf.markFirstInteraction();
     });
 
     el.addEventListener("user-spoke", () => {
+      console.log("[ConvAI] User speaking");
       perf.incrementTurn();
     });
 
     el.addEventListener("agent-spoke", () => {
+      console.log("[ConvAI] Agent responding");
       perf.incrementTurn();
     });
 
-    el.addEventListener("error", () => {
+    el.addEventListener("error", (e: any) => {
+      console.error("[ConvAI] Widget error:", e.detail || e);
       perf.incrementError();
     });
 
