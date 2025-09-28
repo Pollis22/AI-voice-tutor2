@@ -1,6 +1,6 @@
-# Deployment Guide
+# Deployment Guide - JIE Mastery Tutor
 
-This guide covers deploying the AI Tutor application to production using Replit's Autoscale deployment.
+This guide covers deploying the JIE Mastery Tutor application to production on various platforms including Replit, Vercel, Netlify, and others.
 
 ## Replit Autoscale Deployment
 
@@ -45,7 +45,11 @@ AUTH_ORIGIN=https://your-app-domain.replit.app
 # OpenAI for AI tutoring and voice
 OPENAI_API_KEY=sk-your-openai-api-key
 
-# Azure Speech Services for narration
+# ElevenLabs ConvAI (Required for voice conversations)
+USE_CONVAI=true
+ELEVENLABS_API_KEY=your-elevenlabs-api-key
+
+# Azure Speech Services for narration (Optional fallback)
 AZURE_SPEECH_KEY=your-azure-speech-key
 AZURE_SPEECH_REGION=eastus
 ```
@@ -122,6 +126,41 @@ Configure your deployment to use this endpoint for health monitoring.
 - Error tracking and alerts
 - Voice service usage logs
 - User session analytics
+
+## GitHub Deployment Options
+
+### Vercel (Recommended for GitHub)
+1. **Push to GitHub** (see instructions below)
+2. **Connect to Vercel**: Import GitHub repository
+3. **Set Environment Variables** in Vercel dashboard
+4. **Deploy**: Automatic deployment on push to main branch
+
+### Netlify
+1. **Push to GitHub**
+2. **Connect to Netlify**: Import GitHub repository  
+3. **Build Settings**: 
+   - Build command: `npm run build`
+   - Publish directory: `dist`
+4. **Set Environment Variables** in Netlify dashboard
+
+### Railway
+1. **Push to GitHub**
+2. **Connect to Railway**: Import GitHub repository
+3. **Set Environment Variables** in Railway dashboard
+4. **Deploy**: Automatic deployment
+
+## ElevenLabs Agent Configuration
+
+Your app is pre-configured with these agent IDs:
+- **K-2**: `agent_0101k6691t11ew6bcfm3396wfhza`
+- **Grades 3-5**: `agent_4501k66bf389e01t212acwk5vc26`
+- **Grades 6-8**: `agent_3701k66bmce0ecr8mt98nvc4pb96`
+- **Grades 9-12**: `agent_6301k66brd9gfhqtey7t3tf1masf`
+- **College/Adult**: `agent_8901k66cfk6ae6v8h7gj1t21enqa`
+
+**After deployment**, add your production domain to ElevenLabs allowlist:
+1. Go to ElevenLabs dashboard → Select each agent
+2. Security tab → Add your production domain (e.g., `your-app.vercel.app`)
 
 ## Optional: Continuous Deployment
 
